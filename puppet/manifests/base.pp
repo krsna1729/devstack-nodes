@@ -18,7 +18,7 @@ $deps = [
 
 $hosts = hiera('hosts')
 
-$ovs_version = '2.4.0'
+$ovs_version = '2.5.0'
 
 file { '/etc/hosts':
     ensure  => file,
@@ -50,7 +50,7 @@ exec { 'Extract Open vSwitch':
 }
 
 exec { 'Compile Open vSwitch':
-    command => 'fakeroot debian/rules binary',
+    command => "DEB_BUILD_OPTIONS='parallel=2 nocheck' fakeroot debian/rules binary",
     cwd     => "/home/vagrant/openvswitch-${ovs_version}",
     creates => "/home/vagrant/openvswitch-common_${ovs_version}-1_amd64.deb",
     user    => 'root',
