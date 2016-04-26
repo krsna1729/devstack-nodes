@@ -1,0 +1,44 @@
+{
+	"apps" : {
+		"org.onosproject.cordvtn" : {
+			"cordvtn" : {
+				"privateGatewayMac" : "de:ad:be:ef:00:01",
+				"publicGateways" : [
+					{
+						"gatewayIp" : "100.100.100.100",
+						"gatewayMac" : "de:ad:be:ef:ab:cd"
+					}
+				],
+				"localManagementIp" : "172.27.0.1/24",
+				"ovsdbPort" : "6640",
+				"ssh" : {
+					"sshPort" : "22",
+					"sshUser" : "vagrant",
+					"sshKeyFile" : "/root/.ssh/id_rsa"
+				},
+				"openstack" : {
+					"endpoint" : "http://<%= @hosts['devstack-control']['ipaddress'] %>:5000/v2.0/",
+					"tenant" : "admin",
+					"user" : "admin",
+					"password" : "nova"
+				},
+				"nodes" : [
+					{
+						"hostname" : "devstack-compute-1",
+						"hostManagementIp" : "<%= @hosts['devstack-compute-1']['ipaddress'] %>/24",
+						"dataPlaneIp" : "1.1.1.1/16",
+						"dataPlaneIntf" : "eth2",
+						"bridgeId" : "of:0000000000000001"
+					},
+					{
+						"hostname" : "devstack-compute-2",
+						"hostManagementIp" : "<%= @hosts['devstack-compute-2']['ipaddress'] %>/24",
+						"dataPlaneIp" : "1.1.1.2/16",
+						"dataPlaneIntf" : "eth2",
+						"bridgeId" : "of:0000000000000002"
+					}
+				]
+			}
+		}
+	}
+}
