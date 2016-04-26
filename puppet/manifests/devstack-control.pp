@@ -1,3 +1,7 @@
+$deps = [
+    'python-setuptools'
+]
+
 vcsrepo {'/home/vagrant/devstack':
     ensure   => present,
     provider => git,
