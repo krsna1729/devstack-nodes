@@ -50,7 +50,7 @@ exec { 'Extract Open vSwitch':
 }
 
 exec { 'Compile Open vSwitch':
-    command => "DEB_BUILD_OPTIONS='parallel=2 nocheck' fakeroot debian/rules binary",
+    command => "export DEB_BUILD_OPTIONS='parallel=2 nocheck' && fakeroot debian/rules binary",
     cwd     => "/home/vagrant/openvswitch-${ovs_version}",
     creates => "/home/vagrant/openvswitch-common_${ovs_version}-1_amd64.deb",
     user    => 'root',
