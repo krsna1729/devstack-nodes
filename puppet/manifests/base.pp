@@ -18,7 +18,7 @@ $deps = [
 
 $hosts = hiera('hosts')
 
-$ovs_version = '2.5.0'
+$ovs_version = '2.3.0'
 
 file { '/etc/hosts':
     ensure  => file,
