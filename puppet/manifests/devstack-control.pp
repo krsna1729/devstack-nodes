@@ -7,6 +7,14 @@ vcsrepo {'/home/vagrant/devstack':
     before   => File['/home/vagrant/devstack/local.conf'],
 }
 
+vcsrepo {'/home/vagrant/networking-onos':
+    ensure   => present,
+    provider => git,
+    user     => 'vagrant',
+    source   => 'https://github.com/openstack/networking-onos.git',
+    revision => 'master',
+}
+
 $hosts = hiera('hosts')
 
 file { '/home/vagrant/devstack/local.conf':
