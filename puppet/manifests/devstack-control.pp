@@ -22,6 +22,7 @@ vcsrepo {'/home/vagrant/networking-onos':
     source   => 'https://github.com/openstack/networking-onos.git',
     revision => 'master',
     before   => File['/home/vagrant/networking-onos/etc/conf_onos.ini'],
+    require  => Package[$deps]
 }
 
 $hosts = hiera('hosts')
