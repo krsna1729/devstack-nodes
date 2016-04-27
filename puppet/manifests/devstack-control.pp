@@ -48,10 +48,10 @@ file { '/home/vagrant/networking-onos/etc/conf_onos.ini':
 }
 
 exec { 'Install ONOS neutron plugin':
-    command => "sudo python setup.py install",
+    command => "python setup.py install",
     cwd     => '/home/vagrant/networking-onos',
     creates => "/home/vagrant/networking-onos/networking_onos.egg-info",
-    user    => 'vagrant',
+    user    => 'root',
     path    => $::path,
     timeout => 0,
     require => File['/home/vagrant/networking-onos/etc/conf_onos.ini']
