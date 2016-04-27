@@ -27,3 +27,10 @@ file { '/home/vagrant/devstack/local.conf':
     group   => 'vagrant',
     content => template('/vagrant/puppet/templates/control.local.conf.erb'),
 }
+
+file { '/home/vagrant/network-cfg.json':
+    ensure  => present,
+    owner   => 'vagrant',
+    group   => 'vagrant',
+    content => template('/vagrant/puppet/templates/network-cfg.json.erb'),
+}
