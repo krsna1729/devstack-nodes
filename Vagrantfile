@@ -4,7 +4,11 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   config.vm.provision "shell", path: "puppet/scripts/bootstrap.sh"
-
+  
+  if Vagrant.has_plugin?("vagrant-cachier")
+    config.cache.scope = :machine
+  end
+  
   num_compute_nodes = (ENV['DEVSTACK_NUM_COMPUTE_NODES'] || 2).to_i
 
   # ip configuration
