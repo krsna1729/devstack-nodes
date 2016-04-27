@@ -11,6 +11,10 @@ vcsrepo {'/home/vagrant/devstack':
     before   => File['/home/vagrant/devstack/local.conf'],
 }
 
+package { $deps:
+    ensure   => installed,
+}
+
 vcsrepo {'/home/vagrant/networking-onos':
     ensure   => present,
     provider => git,
