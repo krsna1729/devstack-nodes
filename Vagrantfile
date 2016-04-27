@@ -31,6 +31,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     ## control.vm.network "forwarded_port", guest: 8080, host: 8081
     control.vm.network "private_network", ip: "#{neutron_ex_ip}", virtualbox__intnet: "mylocalnet", auto_config: false
     control.vm.provider :virtualbox do |vb|
+      vb.customize ["modifyvm", :id, "--cpus", "12"]
       vb.customize ["modifyvm", :id, "--memory", "8192"]
       vb.customize ["modifyvm", :id, "--nictype1", "virtio"]
       vb.customize ["modifyvm", :id, "--nictype2", "virtio"]
@@ -61,7 +62,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       compute.vm.network "private_network", ip: "#{compute_ip}"
       compute.vm.network "private_network", ip: "#{compute_ex_ip}", virtualbox__intnet: "mylocalnet", auto_config: false
       compute.vm.provider :virtualbox do |vb|
-        vb.customize ["modifyvm", :id, "--memory", "2048"]
+        vb.customize ["modifyvm", :id, "--cpus", "12"]
+        vb.customize ["modifyvm", :id, "--memory", "4096"]
         vb.customize ["modifyvm", :id, "--nictype1", "virtio"]
         vb.customize ["modifyvm", :id, "--nictype2", "virtio"]
         vb.customize ["modifyvm", :id, "--nictype3", "virtio"]
