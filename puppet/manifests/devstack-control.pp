@@ -17,6 +17,7 @@ vcsrepo {'/home/vagrant/networking-onos':
     user     => 'vagrant',
     source   => 'https://github.com/openstack/networking-onos.git',
     revision => 'master',
+    before   => File['/home/vagrant/networking-onos/etc/conf_onos.ini'],
 }
 
 $hosts = hiera('hosts')
@@ -33,4 +34,11 @@ file { '/home/vagrant/network-cfg.json':
     owner   => 'vagrant',
     group   => 'vagrant',
     content => template('/vagrant/puppet/templates/network-cfg.json.erb'),
+}
+
+file { '/home/vagrant/networking-onos/etc/conf_onos.ini':
+    ensure  => present,
+    owner   => 'vagrant',
+    group   => 'vagrant',
+    content => template('/vagrant/puppet/templates/conf_onos.ini.erb'),
 }
