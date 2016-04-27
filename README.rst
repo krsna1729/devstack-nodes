@@ -12,6 +12,6 @@ A Vagrantfile is provided to easily create a DevStack environment to test with::
     vagrant up
     vagrant status
 
-If you would like more than one compute node, you can set the following environment variable::
+If you would like more than two compute node, you can set the following environment variable::
 
     export DEVSTACK_NUM_COMPUTE_NODES=3
