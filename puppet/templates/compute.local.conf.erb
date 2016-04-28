@@ -1,7 +1,7 @@
 [[local|localrc]]
 HOST_IP=<%= @hosts[@hostname]['ipaddress'] %>
 HOST_NAME=<%= @hosts[@hostname]['name'] %>
-SERVICE_HOST=<%= @hosts['devstack-control']['name'] %>
+SERVICE_HOST=<%= @hosts['devstack-control']['ipaddress'] %>
 SERVICE_HOST_NAME=<%= @hosts['devstack-control']['name'] %>
 RABBIT_HOST=$SERVICE_HOST
 DATABASE_HOST=$SERVICE_HOST
