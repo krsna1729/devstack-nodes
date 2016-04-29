@@ -19,13 +19,13 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   compute_ips = num_compute_nodes.times.collect { |n| compute_ip_base + "#{n+21}" }
   compute_ex_ips = num_compute_nodes.times.collect { |n| compute_ex_ip_base + "#{n+11}" }
 
-  config.vm.provision "puppet" do |puppet|
-      puppet.hiera_config_path = "puppet/hiera.yaml"
-      puppet.working_directory = "/vagrant/puppet"
-      puppet.manifests_path = "puppet/manifests"
-      puppet.manifest_file  = "base.pp"
-      puppet.options = "--verbose --debug"
-  end
+#  config.vm.provision "puppet" do |puppet|
+#      puppet.hiera_config_path = "puppet/hiera.yaml"
+#      puppet.working_directory = "/vagrant/puppet"
+#      puppet.manifests_path = "puppet/manifests"
+#      puppet.manifest_file  = "base.pp"
+#      puppet.options = "--verbose --debug"
+#  end
 
   # Devstack Controller
   config.vm.define "devstack-control", primary: true do |control|
@@ -52,6 +52,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       puppet.working_directory = "/vagrant/puppet"
       puppet.manifests_path = "puppet/manifests"
       puppet.manifest_file  = "devstack-control.pp"
+      puppet.options = "--verbose --debug"
     end
   end
 
@@ -83,6 +84,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         puppet.working_directory = "/vagrant/puppet"
         puppet.manifests_path = "puppet/manifests"
         puppet.manifest_file  = "devstack-compute.pp"
+        puppet.options = "--verbose --debug"
       end
     end
   end
