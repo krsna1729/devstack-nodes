@@ -45,7 +45,7 @@ exec { 'Compile Open vSwitch':
     user    => 'root',
     path    => $::path,
     timeout => 0,
-    require => [Exec['Extract Open vSwitch'], Package[$deps]]
+    require => [Exec['Extract Open vSwitch']]
 }
 
 package { 'openvswitch-common':
