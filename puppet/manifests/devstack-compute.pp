@@ -9,13 +9,6 @@ vcsrepo {'/home/vagrant/devstack':
 
 $hosts = hiera('hosts')
 
-file { '/etc/hosts':
-    ensure  => file,
-    owner   => 'root',
-    group   => 'root',
-    content => template('/vagrant/puppet/templates/hosts.erb')
-}
-
 file { '/home/vagrant/devstack/local.conf':
     ensure  => present,
     owner   => 'vagrant',
@@ -23,30 +16,8 @@ file { '/home/vagrant/devstack/local.conf':
     content => template('/vagrant/puppet/templates/compute.local.conf.erb'),
 }
 
-$deps = [
-    'autoconf',
-    'automake',
-    'curl',
-    'debhelper',
-    'gcc',
-    'libssl-dev',
-    'git',
-    'tcpdump',
-    'wget',
-    'tar',
-    'libxml2-dev',
-    'libxslt1-dev',
-    'xbase-clients',
-    'emacs',
-    'wireshark'
-]
-
 $ovs_version = '2.3.0'
 
-
-package { $deps:
-    ensure   => installed,
-}
 
 exec {"Download Open vSwitch":
     command => "wget http://openvswitch.org/releases/openvswitch-${ovs_version}.tar.gz",
