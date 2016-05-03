@@ -7,37 +7,29 @@ RABBIT_HOST=$HOST_IP
 DATABASE_HOST=$HOST_IP
 Q_HOST=$HOST_IP
 
-RECLONE=no
-
 ADMIN_PASSWORD=nova
 DATABASE_PASSWORD=$ADMIN_PASSWORD
 RABBIT_PASSWORD=$ADMIN_PASSWORD
 SERVICE_PASSWORD=$ADMIN_PASSWORD
 SERVICE_TOKEN=$ADMIN_PASSWORD
-
-OS_IDENTITY_API_VERSION=2.0
-ENABLE_IDENTITY_V2=True
-#OS_AUTH_URL=http://$SERVICE_HOST:5000/v2.0
-SERVICE_ENDPOINT=http://$SERVICE_HOST:35357/v2.0
-
+ 
 DATABASE_TYPE=mysql
-
+ 
 # Log
 SCREEN_LOGDIR=/opt/stack/logs/screen
-
+ 
 # Images
 IMAGE_URLS="http://cloud-images.ubuntu.com/releases/14.04/release/ubuntu-14.04-server-cloudimg-amd64.tar.gz"
-#http://www.planet-lab.org/cord/trusty-server-multi-nic.img
-
-FORCE_CONFIG_DRIVE=always
-#FORCE_CONFIG_DRIVE=True
-
-NEUTRON_CREATE_INITIAL_NETWORKS=False
-
+#,http://www.planet-lab.o    rg/cord/trusty-server-multi-nic.img"
+FORCE_CONFIG_DRIVE=True
+ 
+# Networks
+Q_ML2_TENANT_NETWORK_TYPE=vxlan
 Q_ML2_PLUGIN_MECHANISM_DRIVERS=onos_ml2
-Q_PLUGIN_EXTRA_CONF_PATH=/home/vagrant/networking-onos/etc
+Q_PLUGIN_EXTRA_CONF_PATH=/opt/stack/networking-onos/etc
 Q_PLUGIN_EXTRA_CONF_FILES=(conf_onos.ini)
-
+NEUTRON_CREATE_INITIAL_NETWORKS=False
+ 
 # Services
 enable_service q-svc
 disable_service n-net
@@ -46,3 +38,10 @@ disable_service tempest
 disable_service c-sch
 disable_service c-api
 disable_service c-vol
+ 
+# Branches
+GLANCE_BRANCH=stable/mitaka
+HORIZON_BRANCH=stable/mitaka
+KEYSTONE_BRANCH=stable/mitaka
+NEUTRON_BRANCH=stable/mitaka
+NOVA_BRANCH=stable/mitaka
