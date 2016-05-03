@@ -14,12 +14,13 @@ file { '/home/vagrant/devstack/local.conf':
     owner   => 'vagrant',
     group   => 'vagrant',
     content => template('/vagrant/puppet/templates/compute.local.conf.erb'),
+    before   => Exec['Download Open vSwitch'],
 }
 
 $ovs_version = '2.3.0'
 
 
-exec {"Download Open vSwitch":
+exec {'Download Open vSwitch':
     command => "wget http://openvswitch.org/releases/openvswitch-${ovs_version}.tar.gz",
     cwd     => "/home/vagrant",
     creates => "/home/vagrant/openvswitch-${ovs_version}.tar.gz",
