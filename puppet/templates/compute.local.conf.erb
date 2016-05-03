@@ -6,34 +6,26 @@ SERVICE_HOST_NAME=<%= @hosts['devstack-control']['name'] %>
 RABBIT_HOST=$SERVICE_HOST
 DATABASE_HOST=$SERVICE_HOST
 
-RECLONE=no
-
 ADMIN_PASSWORD=nova
 DATABASE_PASSWORD=$ADMIN_PASSWORD
 RABBIT_PASSWORD=$ADMIN_PASSWORD
 SERVICE_PASSWORD=$ADMIN_PASSWORD
 SERVICE_TOKEN=$ADMIN_PASSWORD
-
-OS_IDENTITY_API_VERSION=2.0
-ENABLE_IDENTITY_V2=True
-#OS_AUTH_URL=http://$SERVICE_HOST:5000/v2.0
-SERVICE_ENDPOINT=http://$SERVICE_HOST:35357/v2.0
-
+ 
 DATABASE_TYPE=mysql
-
+ 
 NOVA_VNC_ENABLED=True
 VNCSERVER_PROXYCLIENT_ADDRESS=$HOST_IP
 VNCSERVER_LISTEN=$HOST_IP
-
+ 
+LIBVIRT_TYPE=qemu
 # Log
 SCREEN_LOGDIR=/opt/stack/logs/screen
-
-# Images
-IMAGE_URLS="http://cloud-images.ubuntu.com/releases/precise/release/ubuntu-12.04-server-cloudimg-amd64.tar.gz"
-#http://www.planet-lab.org/cord/trusty-server-multi-nic.img
-
-LIBVIRT_TYPE=qemu
-
+ 
 # Services
 ENABLED_SERVICES=n-cpu,neutron
-
+ 
+# Branches
+NOVA_BRANCH=stable/mitaka
+KEYSTONE_BRANCH=stable/mitaka
+NEUTRON_BRANCH=stable/mitaka
