@@ -7,7 +7,7 @@ vcsrepo {'/home/vagrant/devstack':
     provider => git,
     user     => 'vagrant',
     source   => 'https://github.com/openstack-dev/devstack.git',
-    revision => 'stable/kilo',
+    revision => 'stable/mitaka',
     before   => File['/home/vagrant/devstack/local.conf'],
 }
 
@@ -49,10 +49,10 @@ file { '/home/vagrant/networking-onos/etc/conf_onos.ini':
 }
 
 exec { 'Install ONOS neutron plugin':
-    command => "sudo -E python setup.py install",
+    command => "python setup.py install",
     cwd     => '/home/vagrant/networking-onos',
-    creates => "/home/vagrant/networking-onos/networking_onos.egg-info",
-    user    => 'vagrant',
+    creates => "/usr/local/lib/python2.7/dist-packages/networking_onos-2016.1.0-py2.7.egg-infoo",
+    user    => 'root',
     path    => $::path,
     timeout => 0,
     require => File['/home/vagrant/networking-onos/etc/conf_onos.ini']
