@@ -5,7 +5,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   config.vm.provision "shell", path: "puppet/scripts/bootstrap.sh"
 
-  num_compute_nodes = (ENV['DEVSTACK_NUM_COMPUTE_NODES'] || 1).to_i
+  num_compute_nodes = (ENV['DEVSTACK_NUM_COMPUTE_NODES'] || 2).to_i
 
   # ip configuration
   control_ip = "192.168.50.20"
@@ -33,7 +33,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     control.vm.network "private_network", ip: "0.0.0.0", virtualbox__intnet: "mylocalnet", auto_config: false
     control.vm.provider :virtualbox do |vb|
       # vb.gui = true
-      vb.customize ["modifyvm", :id, "--memory", "4096"]
+      vb.customize ["modifyvm", :id, "--cpus", "6"]vb.customize ["modifyvm", :id, "--memory", "4096"]
       vb.customize ["modifyvm", :id, "--nictype1", "virtio"]
       vb.customize ["modifyvm", :id, "--nictype2", "virtio"]
       vb.customize ["modifyvm", :id, "--nictype3", "virtio"]
