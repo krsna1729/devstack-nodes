@@ -17,15 +17,15 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
      puppet.working_directory = "/vagrant/puppet"
      puppet.manifests_path = "puppet/manifests"
      puppet.manifest_file  = "base.pp"
-     # puppet.options = "--verbose --debug"
+     puppet.options = "--verbose --debug"
   end
 
   # Devstack Controller
   config.vm.define "devstack-control", primary: true do |control|
-    control.vm.box = "centos71"
-    control.vm.box_url = "http://opscode-vm-bento.s3.amazonaws.com/vagrant/virtualbox/opscode_centos-7.1_chef-provisionerless.box"
+    control.vm.box = "centos72"
+    control.vm.box_url = "http://opscode-vm-bento.s3.amazonaws.com/vagrant/virtualbox/opscode_centos-7.2_chef-provisionerless.box"
     control.vm.provider "vmware_fusion" do |v, override|
-      override.vm.box_url = "http://opscode-vm-bento.s3.amazonaws.com/vagrant/vmware/opscode_centos-7.1_chef-provisionerless.box"
+      override.vm.box_url = "http://opscode-vm-bento.s3.amazonaws.com/vagrant/virtualbox/opscode_centos-7.2_chef-provisionerless.box"
     end
     control.vm.hostname = "devstack-control"
     control.vm.network "private_network", ip: "#{control_ip}"
@@ -49,7 +49,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       puppet.working_directory = "/vagrant/puppet"
       puppet.manifests_path = "puppet/manifests"
       puppet.manifest_file  = "devstack-control.pp"
-      # puppet.options = "--verbose --debug"
+      puppet.options = "--verbose --debug"
     end
   end
 
@@ -83,7 +83,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         puppet.working_directory = "/vagrant/puppet"
         puppet.manifests_path = "puppet/manifests"
         puppet.manifest_file  = "devstack-compute.pp"
-        # puppet.options = "--verbose --debug"
+        puppet.options = "--verbose --debug"
       end
     end
   end
