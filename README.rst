@@ -4,7 +4,7 @@ devstack-nodes
 This repo provides a Vagrantfile with provisioning that one can use to easily
 get a cluster of nodes configured with DevStack.
 
-Modify the CPU and memory allocation appropriately::
+Modify the CPU and memory allocation in the Vagrantfile appropriately::
 
     control.vm.provider :virtualbox do |vb|
         vb.customize ["modifyvm", :id, "--cpus", "6"]
