@@ -71,7 +71,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       compute.vm.network "private_network", ip: "#{compute_ex_ip}", virtualbox__intnet: "mylocalnet", auto_config: false
       compute.vm.provider :virtualbox do |vb|
         vb.customize ["modifyvm", :id, "--cpus", "6"]
-        vb.customize ["modifyvm", :id, "--memory", "2048"]
+        vb.customize ["modifyvm", :id, "--memory", "4096"]
         vb.customize ["modifyvm", :id, "--nictype1", "virtio"]
         vb.customize ["modifyvm", :id, "--nictype2", "virtio"]
         vb.customize ["modifyvm", :id, "--nictype3", "virtio"]
