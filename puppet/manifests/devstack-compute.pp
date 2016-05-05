@@ -17,7 +17,7 @@ file { '/home/vagrant/devstack/local.conf':
     before   => Exec['Download Open vSwitch'],
 }
 
-$ovs_version = '2.3.0'
+$ovs_version = '2.3.2'
 
 
 exec {'Download Open vSwitch':
