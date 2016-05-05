@@ -3,6 +3,7 @@ VAGRANTFILE_API_VERSION = "2"
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
+  config.ssh.insert_key = false
   config.vm.provision "shell", path: "puppet/scripts/bootstrap.sh"
   
   if Vagrant.has_plugin?("vagrant-cachier")
