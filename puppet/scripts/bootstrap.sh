@@ -54,3 +54,4 @@ update_rubygems >/dev/null
 # Installing Puppet Modules
 puppet module install puppetlabs/vcsrepo
 puppet module install puppetlabs/stdlib
+puppet module install puppetlabs-docker_platform
