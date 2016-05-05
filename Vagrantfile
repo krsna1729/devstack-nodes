@@ -24,7 +24,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       puppet.working_directory = "/vagrant/puppet"
       puppet.manifests_path = "puppet/manifests"
       puppet.manifest_file  = "base.pp"
-      puppet.options = "--verbose"
       #puppet.options = "--verbose --debug"
   end
 
@@ -53,7 +52,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       puppet.working_directory = "/vagrant/puppet"
       puppet.manifests_path = "puppet/manifests"
       puppet.manifest_file  = "devstack-control.pp"
-      puppet.options = "--verbose"
       #puppet.options = "--verbose --debug"
     end
   end
@@ -86,7 +84,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         puppet.working_directory = "/vagrant/puppet"
         puppet.manifests_path = "puppet/manifests"
         puppet.manifest_file  = "devstack-compute.pp"
-        puppet.options = "--verbose --debug"
+        #puppet.options = "--verbose --debug"
       end
     end
   end
