@@ -19,6 +19,8 @@ Testing
 
 A Vagrantfile is provided to easily create a DevStack environment to test with::
 
+    cp $HOME/.vagrant.d/insecure_private_key .
+    
     vagrant up --no-provision
     ls .vagrant/machines/ | xargs -n 1 -P 3 vagrant provision
     
