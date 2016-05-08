@@ -74,5 +74,25 @@ package { 'openvswitch-pki':
     ensure   => installed,
     provider => dpkg,
     source   => "/home/vagrant/openvswitch-pki_${ovs_version}-1_all.deb",
-    require  => Package['openvswitch-datapath-dkms']
+    require  => Package['openvswitch-datapath-dkms'],
+    before   => Exec['Set OVSDB to listen on 6640']
 }
+
+exec { 'Set OVSDB to listen on 6640':
+    command => "ovs-appctl -t ovsdb-server ovsdb-server/add-remote ptcp:6640 && netstat -ntl",
+    user    => 'root',
+    path    => $::path,
+    timeout => 0,
+    logoutput => true,
+#   require => [Package['openvswitch-common'], Package['openvswitch-switch']]
+}
+/*
+exec {'Install Openstack':
+   command => "/bin/bash ./stack.sh",
+   user    => 'vagrant',
+   cwd     => '/home/vagrant/devstack',
+   path    => $::path,
+   timeout => 0,
+   require => File['/home/vagrant/devstack/local.conf'],
+}
+*/
