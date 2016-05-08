@@ -86,6 +86,8 @@ docker::run { 'onos1':
   name     => 'onos1',
 # pull_on_start   => true,
   volumes   => ['/home/vagrant/.ssh:/root/.ssh'],
+  extra_parameters => [ '--net=host' ],
+  require => Class['docker'],
 }
 
 exec { 'Activate ONOS Apps':
