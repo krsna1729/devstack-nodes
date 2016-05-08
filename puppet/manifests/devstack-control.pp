@@ -105,7 +105,7 @@ exec { 'Push CORD VTN Config':
     path    => $::path,
     timeout => 0,
     logoutput => true,
-    require => [Exec['Activate ONOS Apps']]
+    require => [Exec['Activate ONOS Apps'], File['/home/vagrant/network-cfg.json']]
 }
 
 /*
