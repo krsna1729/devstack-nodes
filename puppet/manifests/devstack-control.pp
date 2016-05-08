@@ -1,5 +1,6 @@
 $deps = [
-    'python-setuptools'
+    'python-setuptools',
+    'sshpass',
 ]
 
 file { '/home/vagrant/.ssh/id_rsa':
@@ -8,7 +9,6 @@ file { '/home/vagrant/.ssh/id_rsa':
     group   => 'vagrant',
     source  => '/vagrant/insecure_private_key',
     mode    => 600,
-    before  => Exec['ONOS Container'],
 }
 
 
@@ -65,7 +65,7 @@ exec { 'Install ONOS neutron plugin':
     user    => 'root',
     path    => $::path,
     timeout => 0,
-    require => File['/home/vagrant/networking-onos/etc/conf_onos.ini']
+    require => [File['/home/vagrant/networking-onos/etc/conf_onos.ini'], Package[$deps]]
 }
 
 
@@ -77,25 +77,37 @@ class { 'docker':
   #version => 'latest',
 }
 
-/*
+
 docker::run { 'onos1':
   image    => 'onosproject/onos',
   detach   => true,
   tty      => true,
-  env      => ['ONOS_IP=$ctl_ip'],
-  net      => 'host',
+  env      => ["ONOS_IP=$ctl_ip"],
   name     => 'onos1',
-  pull_on_start   => true,
+# pull_on_start   => true,
   volumes   => ['/home/vagrant/.ssh:/root/.ssh'],
-  remove_container_on_start => true,
-  remove_volume_on_start    => false,
-  remove_container_on_stop  => true,
-  remove_volume_on_stop     => false,
 }
-*/
 
+exec { 'Activate ONOS Apps':
+    command => "sleep 20 && sshpass -p karaf ssh -o StrictHostKeyChecking=no -p 8101 karaf@${ctl_ip} 'app activate org.onosproject.drivers.ovsdb org.onosproject.openflow-base org.onosproject.lldpprovider org.onosproject.cordvtn'",
+    user    => 'vagrant',
+    path    => $::path,
+    timeout => 0,
+    require => [Docker::Run['onos1'], Package[$deps]],
+    logoutput => true,
+}
 
-exec { 'ONOS Container':
+exec { 'Push CORD VTN Config':
+    command => "sleep 20 && curl --user onos:rocks -X POST -H \"Content-Type: application/json\" http://${ctl_ip}:8181/onos/v1/network/configuration/ -d @/home/vagrant/network-cfg.json",
+    user    => 'vagrant',
+    path    => $::path,
+    timeout => 0,
+    logoutput => true,
+    require => [Exec['Activate ONOS Apps']]
+}
+
+/*
+exec { 'onos1':
     command => "docker pull onosproject/onos && docker run -e ONOS_IP=${ctl_ip} -v /home/vagrant/.ssh:/root/.ssh --net=host -t -d --name onos1 onosproject/onos > onos1",
     user    => 'root',
     cwd     => '/home/vagrant/',
@@ -106,3 +118,12 @@ exec { 'ONOS Container':
     logoutput => true,
 }
 
+exec {'Install Openstack':
+   command => "/bin/bash ./stack.sh",
+   user    => 'vagrant',
+   cwd     => '/home/vagrant/devstack',
+   path    => $::path,
+   timeout => 0,
+   require => [File['/home/vagrant/devstack/local.conf'], Exec['Install ONOS neutron plugin']]
+}
+*/
