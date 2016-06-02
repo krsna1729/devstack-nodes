@@ -7,6 +7,14 @@ vcsrepo {'/home/vagrant/devstack':
     before   => File['/home/vagrant/devstack/local.conf'],
 }
 
+vcsrepo {'/opt/bess':
+    ensure   => present,
+    provider => git,
+    user     => 'vagrant',
+    source   => 'https://github.com/NetSys/bess.git',
+    revision => 'develop',
+}
+
 $hosts = hiera('hosts')
 
 file { '/home/vagrant/devstack/local.conf':
