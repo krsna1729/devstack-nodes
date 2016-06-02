@@ -13,6 +13,16 @@ vcsrepo {'/opt/bess':
     user     => 'vagrant',
     source   => 'https://github.com/NetSys/bess.git',
     revision => 'develop',
+    before   => Exec['Compile BESS'],
+}
+
+exec { 'Compile BESS':
+    command => "python build.py",
+    cwd     => '/opt/bess',
+    creates => '/opt/bess/bin/bessd',
+    user    => 'vagrant',
+    path    => $::path,
+    timeout => 0,
 }
 
 $hosts = hiera('hosts')
