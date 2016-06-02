@@ -5,6 +5,7 @@ $deps = [
     'debhelper',
     'gcc',
     'libssl-dev',
+    'libpcap-dev',
     'git',
     'tcpdump',
     'wget',
