@@ -49,3 +49,7 @@ HORIZON_BRANCH=stable/mitaka
 KEYSTONE_BRANCH=stable/mitaka
 NEUTRON_BRANCH=stable/mitaka
 NOVA_BRANCH=stable/mitaka
+
+[[post-config|$NOVA_CONF]]
+[DEFAULT]
+scheduler_default_filters=RamFilter,ComputeFilter,AvailabilityZoneFilter,ComputeCapabilitiesFilter,ImagePropertiesFilter,PciPassthroughFilter,NUMATopologyFilter

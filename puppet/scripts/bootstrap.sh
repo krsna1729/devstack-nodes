@@ -26,6 +26,10 @@ fi
 echo "Initial apt-get update..."
 apt-get update >/dev/null
 
+echo "Add ppa:syseleven-platform/virtualization-cloud..."
+add-apt-repository ppa:syseleven-platform/virtualization-cloud >/dev/null
+apt-get update >/dev/null
+
 # Install wget if we have to (some older Ubuntu versions)
 echo "Installing wget..."
 apt-get install -y wget >/dev/null
