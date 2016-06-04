@@ -1,0 +1,178 @@
+diff --git a/nova/network/linux_net.py b/nova/network/linux_net.py
+index 40064a0..c470a39 100644
+--- a/nova/network/linux_net.py
++++ b/nova/network/linux_net.py
+@@ -1402,6 +1402,16 @@ def delete_ovs_vif_port(bridge, dev, delete_dev=True):
+         delete_net_dev(dev)
+ 
+ 
++def create_bess_vif_port(dev, mac):
++    utils.execute('zerorpc', 'tcp://127.0.0.1:10515', 'add_port',
++                   dev, mac, run_as_root=False)
++
++
++def delete_bess_vif_port(dev):
++    utils.execute('zerorpc', 'tcp://127.0.0.1:10515', 'delete_port',
++                   dev, run_as_root=False)
++
++
+ def create_ivs_vif_port(dev, iface_id, mac, instance_id):
+     utils.execute('ivs-ctl', 'add-port',
+                    dev, run_as_root=True)
+diff --git a/nova/network/model.py b/nova/network/model.py
+index 8088ee8..ac59b75 100644
+--- a/nova/network/model.py
++++ b/nova/network/model.py
+@@ -82,6 +82,9 @@ VIF_DETAILS_VHOSTUSER_OVS_PLUG = 'vhostuser_ovs_plug'
+ VIF_DETAILS_VHOSTUSER_FP_PLUG = 'vhostuser_fp_plug'
+ # ovs vhost user interface type name
+ OVS_VHOSTUSER_INTERFACE_TYPE = 'dpdkvhostuser'
++# Specifies whether vhost-user socket should be plugged
++# into bess datapath. Valid values are True and False
++VIF_DETAILS_VHOSTUSER_BESS_PLUG = 'vhostuser_bess_plug'
+ 
+ # Constants for dictionary keys in the 'vif_details' field that are
+ # valid for VIF_TYPE_TAP.
+diff --git a/nova/tests/unit/virt/libvirt/test_vif.py b/nova/tests/unit/virt/libvirt/test_vif.py
+index 6f48247..5e92a01 100644
+--- a/nova/tests/unit/virt/libvirt/test_vif.py
++++ b/nova/tests/unit/virt/libvirt/test_vif.py
+@@ -305,6 +305,17 @@ class LibvirtVifTestCase(test.NoDBTestCase):
+               ovs_interfaceid='aaa-bbb-ccc', mtu=1500
+               )
+ 
++    vif_vhostuser_bess = network_model.VIF(id='vif-xxx-yyy-zzz',
++              address='ca:fe:de:ad:be:ef',
++              network=network_bridge,
++              type=network_model.VIF_TYPE_VHOSTUSER,
++              devname='tap-xxx-yyy-zzz',
++              details = {network_model.VIF_DETAILS_VHOSTUSER_MODE: 'client',
++                         network_model.VIF_DETAILS_VHOSTUSER_SOCKET:
++                                                     '/tmp/sn_vhost_xxx-yyy-zzz',
++                         network_model.VIF_DETAILS_VHOSTUSER_BESS_PLUG: True},
++               )
++
+     vif_vhostuser_ovs_fp = network_model.VIF(id='vif-xxx-yyy-zzz',
+               address='ca:fe:de:ad:be:ef',
+               network=network_bridge,
+@@ -1259,6 +1270,22 @@ class LibvirtVifTestCase(test.NoDBTestCase):
+         self._assertMacEquals(node, self.vif_vhostuser)
+         self._assertModel(xml, network_model.VIF_MODEL_VIRTIO)
+ 
++    def test_vhostuser_bess_driver(self):
++        d = vif.LibvirtGenericVIFDriver()
++        xml = self._get_instance_xml(d, self.vif_vhostuser_bess)
++        node = self._get_node(xml)
++        self.assertEqual(node.get("type"),
++                         network_model.VIF_TYPE_VHOSTUSER)
++
++        self._assertTypeEquals(node, network_model.VIF_TYPE_VHOSTUSER,
++                               "source", "mode", "client")
++        self._assertTypeEquals(node, network_model.VIF_TYPE_VHOSTUSER,
++                               "source", "path", "/tmp/sn_vhost_xxx-yyy-zzz")
++        self._assertTypeEquals(node, network_model.VIF_TYPE_VHOSTUSER,
++                               "source", "type", "unix")
++        self._assertMacEquals(node, self.vif_vhostuser_bess)
++        self._assertModel(xml, network_model.VIF_MODEL_VIRTIO)
++
+     def test_vhostuser_no_queues(self):
+         d = vif.LibvirtGenericVIFDriver()
+         image_meta = objects.ImageMeta.from_dict(
+@@ -1310,6 +1337,32 @@ class LibvirtVifTestCase(test.NoDBTestCase):
+         d.unplug_vhostuser(None, self.vif_vhostuser_fp)
+         mock_delete_fp_dev.assert_has_calls([mock.call('tap-xxx-yyy-zzz')])
+ 
++
++    def test_vhostuser_bess_plug(self):
++
++        calls = {
++            'create_bess_vif_port': [
++                 mock.call(
++                     'tap-xxx-yyy-zzz',
++                     'ca:fe:de:ad:be:ef'
++                 )]
++        }
++        with mock.patch.object(linux_net,
++                               'create_bess_vif_port') as create_bess_vif_port:
++            d = vif.LibvirtGenericVIFDriver()
++            d.plug(self.instance, self.vif_vhostuser_bess)
++            create_bess_vif_port.assert_has_calls(calls['create_bess_vif_port'])
++
++    def test_vhostuser_bess_unplug(self):
++        calls = {
++            'delete_bess_vif_port': [mock.call('tap-xxx-yyy-zzz')]
++        }
++        with mock.patch.object(linux_net,
++                               'delete_bess_vif_port') as delete_port:
++            d = vif.LibvirtGenericVIFDriver()
++            d.unplug(self.instance, self.vif_vhostuser_bess)
++            delete_port.assert_has_calls(calls['delete_bess_vif_port'])
++
+     def test_vhostuser_ovs_plug(self):
+ 
+         calls = {
+diff --git a/nova/virt/libvirt/vif.py b/nova/virt/libvirt/vif.py
+index 576c0ae..ee188f3 100644
+--- a/nova/virt/libvirt/vif.py
++++ b/nova/virt/libvirt/vif.py
+@@ -683,6 +683,12 @@ class LibvirtGenericVIFDriver(object):
+             instance.uuid, mtu,
+             interface_type=network_model.OVS_VHOSTUSER_INTERFACE_TYPE)
+ 
++    def plug_vhostuser_bess(self, instance, vif):
++        """Plug a VIF_TYPE_VHOSTUSER into BESS dataplane"""
++        dev = self.get_vif_devname(vif)
++        mac = vif['address']
++        linux_net.create_bess_vif_port(dev, mac)
++
+     def plug_vhostuser(self, instance, vif):
+         fp_plug = vif['details'].get(
+                                 network_model.VIF_DETAILS_VHOSTUSER_FP_PLUG,
+@@ -690,10 +696,15 @@ class LibvirtGenericVIFDriver(object):
+         ovs_plug = vif['details'].get(
+                                 network_model.VIF_DETAILS_VHOSTUSER_OVS_PLUG,
+                                 False)
++        bess_plug = vif['details'].get(
++                                network_model.VIF_DETAILS_VHOSTUSER_BESS_PLUG,
++                                False)
+         if fp_plug:
+             self.plug_vhostuser_fp(instance, vif)
+         elif ovs_plug:
+             self.plug_vhostuser_ovs(instance, vif)
++        elif bess_plug:
++            self.plug_vhostuser_bess(instance, vif)
+ 
+     def plug_vrouter(self, instance, vif):
+         """Plug into Contrail's network port
+@@ -926,6 +937,15 @@ class LibvirtGenericVIFDriver(object):
+         linux_net.delete_ovs_vif_port(self.get_bridge_name(vif),
+                                       port_name)
+ 
++    def unplug_vhostuser_bess(self, instance, vif):
++        """Unplug a VIF_TYPE_VHOSTUSER from BESS datapath."""
++        dev = self.get_vif_devname(vif)
++        try:
++            linux_net.delete_bess_vif_port(dev)
++        except processutils.ProcessExecutionError:
++            LOG.exception(_LE("Failed while unplugging vif"),
++                          instance=instance)
++
+     def unplug_vhostuser(self, instance, vif):
+         fp_plug = vif['details'].get(
+                         network_model.VIF_DETAILS_VHOSTUSER_FP_PLUG,
+@@ -933,10 +953,15 @@ class LibvirtGenericVIFDriver(object):
+         ovs_plug = vif['details'].get(
+                         network_model.VIF_DETAILS_VHOSTUSER_OVS_PLUG,
+                         False)
++        bess_plug = vif['details'].get(
++                        network_model.VIF_DETAILS_VHOSTUSER_BESS_PLUG,
++                        False)
+         if fp_plug:
+             self.unplug_vhostuser_fp(instance, vif)
+         elif ovs_plug:
+             self.unplug_vhostuser_ovs(instance, vif)
++        elif bess_plug:
++            self.unplug_vhostuser_bess(instance, vif)
+ 
+     def unplug_vrouter(self, instance, vif):
+         """Unplug Contrail's network port

@@ -134,3 +134,15 @@ tramp
 
 # cask packages
 .cask/
+
+# QCOW images
+*.qcow2
+
+# debs
+*.deb
+
+# OVS
+openvswitch-*
+
+# vagrant pvt key
+insecure_private_key

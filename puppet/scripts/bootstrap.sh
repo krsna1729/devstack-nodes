@@ -55,3 +55,4 @@ update_rubygems >/dev/null
 puppet module install puppetlabs/vcsrepo
 puppet module install puppetlabs/stdlib
 puppet module install puppetlabs-docker_platform
+puppet module install tohuwabohu-patch

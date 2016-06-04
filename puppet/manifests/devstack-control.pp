@@ -1,5 +1,4 @@
 $deps = [
-    'python-setuptools',
     'sshpass',
 ]
 
@@ -33,6 +32,13 @@ vcsrepo {'/home/vagrant/networking-onos':
     revision => 'master',
     before   => File['/home/vagrant/networking-onos/etc/conf_onos.ini'],
     require  => Package[$deps]
+}
+
+patch::directory { '/home/vagrant/networking-onos':
+  diff_source => '/vagrant/networking_onos_bess.patch',
+  strip => 1,
+  before => Exec['Install ONOS neutron plugin'],
+  require => Vcsrepo['/home/vagrant/networking-onos']
 }
 
 $hosts = hiera('hosts')
@@ -79,7 +85,7 @@ class { 'docker':
 
 
 docker::run { 'onos1':
-  image    => 'onosproject/onos',
+  image    => 'onosproject/onos@sha256:79e344460ce0f8755f68e5d09ef1c8fa08014f585e8a41b57a70b2f9bb388ad8',
   detach   => true,
   tty      => true,
   env      => ["ONOS_IP=$ctl_ip"],
@@ -106,6 +112,21 @@ exec { 'Push CORD VTN Config':
     timeout => 0,
     logoutput => true,
     require => [Exec['Activate ONOS Apps'], File['/home/vagrant/network-cfg.json']]
+}
+
+exec { 'Download Fedora':
+    command => "wget --progress=dot:giga -c https://download.fedoraproject.org/pub/fedora/linux/releases/23/Cloud/x86_64/Images/Fedora-Cloud-Base-23-20151030.x86_64.qcow2 -O /vagrant/Fedora-Cloud-Base-23-20151030.x86_64.qcow2",
+    user    => 'vagrant',
+    path    => $::path,
+    creates => "/vagrant/Fedora-Cloud-Base-23-20151030.x86_64.qcow2",
+    timeout => 0,
+    logoutput => true,
+    require => [Vcsrepo['/home/vagrant/devstack']]
+}
+
+file { '/home/vagrant/devstack/files/Fedora-Cloud-Base-23-20151030.x86_64.qcow2':
+   ensure => 'link',
+   target => '/vagrant/Fedora-Cloud-Base-23-20151030.x86_64.qcow2',
 }
 
 /*
