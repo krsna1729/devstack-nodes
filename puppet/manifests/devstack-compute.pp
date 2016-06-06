@@ -42,7 +42,7 @@ exec { 'Install PIP':
 }
 
 exec { 'Install twink':
-    command => 'pip install https://github.com/krsna1729/twink/archive/master.zip',
+    command => 'sleep 5 && pip install https://github.com/krsna1729/twink/archive/master.zip',
     user    => 'root',
     path    => $::path,
     timeout => 0,

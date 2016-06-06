@@ -11,6 +11,31 @@ index add6951..3169b75 100644
  #else
  	rte_argv[rte_argc++] = "--no-huge";
  #endif
+diff --git a/core/drivers/vhost_driver.c b/core/drivers/vhost_driver.c
+index 439736f..e9a5b0d 100644
+--- a/core/drivers/vhost_driver.c
++++ b/core/drivers/vhost_driver.c
+@@ -179,6 +179,7 @@ static struct snobj *vhost_init_port(struct port *p, struct snobj *conf)
+ 		return snobj_err(EMFILE, "[vhost_drv]: Couldn't init port %s\n"
+ 				"Driver register failed",p->name);
+ 
++	chmod(vdev->name, 0777);
+ 	/* Add vdev to main ll */
+ 	ll_dev->vdev = vdev;
+ 	add_data_ll_entry(&ll_devlist_listening, ll_dev);
+diff --git a/core/drivers/vhost_driver.h b/core/drivers/vhost_driver.h
+index 9974206..d187c41 100644
+--- a/core/drivers/vhost_driver.h
++++ b/core/drivers/vhost_driver.h
+@@ -7,7 +7,7 @@ extern "C" {
+ #include <rte_ether.h>
+ #include "rte_virtio_net.h"
+ 
+-#define VHOST_DIR_PREFIX "/tmp/sn_vhost_"
++#define VHOST_DIR_PREFIX "/tmp/bess/sn_vhost_"
+ 
+ /* State of virtio device. */
+ #define DEVICE_MAC_LEARNING     0
 diff --git a/core/namespace.c b/core/namespace.c
 index 90820ac..0633621 100644
 --- a/core/namespace.c

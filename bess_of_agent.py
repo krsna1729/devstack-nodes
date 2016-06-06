@@ -73,7 +73,7 @@ def init_phy_port(bess, name, port_id):
 
 
 PKTINOUT_NAME = 'pktinout_%s'
-SOCKET_PATH = '/tmp/bess_unix_' + PKTINOUT_NAME
+SOCKET_PATH = '/tmp/bess/unix_' + PKTINOUT_NAME
 
 
 def init_pktinout_port(bess, name):

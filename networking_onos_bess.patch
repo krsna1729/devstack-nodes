@@ -24,7 +24,7 @@ index b78775f..574e7cc 100644
 +                                    portbindings.VHOST_USER_MODE_CLIENT,
 +                            VHOST_USER_BESS_PLUG: True,
 +                            }
-+        self.vhu_sock_prefix = "/tmp/sn_vhost_"
++        self.vhu_sock_prefix = "/tmp/bess/sn_vhost_"
  
      def initialize(self):
          # No action required as of now. Can be extended in
