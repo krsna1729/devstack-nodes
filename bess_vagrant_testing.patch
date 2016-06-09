@@ -7,7 +7,7 @@ index add6951..3169b75 100644
  	rte_argv[rte_argc++] = "--socket-mem";
  	rte_argv[rte_argc++] = opt_socket_mem;
 +	rte_argv[rte_argc++] = "-w";
-+	rte_argv[rte_argc++] = "00:09.0";
++	rte_argv[rte_argc++] = "00:07.0";
  #else
  	rte_argv[rte_argc++] = "--no-huge";
  #endif

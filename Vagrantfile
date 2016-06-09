@@ -4,6 +4,7 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   config.ssh.insert_key = false
+  config.vm.synced_folder './', '/vagrant', type: 'nfs'
   config.vm.provision "shell", path: "puppet/scripts/bootstrap.sh"
   
   if Vagrant.has_plugin?("vagrant-cachier")
@@ -35,7 +36,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     ## control.vm.network "public_network", ip: "#{control_ip}", bridge: "tap1"
     control.vm.network "private_network", ip: "#{control_ip}"
     ## control.vm.network "forwarded_port", guest: 8080, host: 8081
-    control.vm.network "private_network", ip: "#{neutron_ex_ip}", virtualbox__intnet: "mylocalnet", auto_config: false
+    control.vm.network "private_network", ip: "#{neutron_ex_ip}", :libvirt__network_name => "mylocalnet"
     control.vm.provider :virtualbox do |vb|
       vb.customize ["modifyvm", :id, "--cpus", "6"]
       vb.customize ["modifyvm", :id, "--memory", "4096"]
@@ -44,6 +45,12 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       vb.customize ["modifyvm", :id, "--nictype3", "virtio"]
       vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
       vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
+    end
+    control.vm.provider :libvirt do |lv|
+      lv.cpus = 6
+      lv.memory = 4096
+      lv.nested = true
+      lv.cpu_mode = "host-passthrough"
     end
     control.vm.provider "vmware_fusion" do |vf|
       vf.vmx["memsize"] = "4096"
@@ -67,7 +74,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       compute.vm.hostname = "devstack-compute-#{compute_index}"
       ## compute.vm.network "public_network", ip: "#{compute_ip}", bridge: "tap1"
       compute.vm.network "private_network", ip: "#{compute_ip}"
-      compute.vm.network "private_network", ip: "#{compute_ex_ip}", virtualbox__intnet: "mylocalnet", auto_config: false
+      compute.vm.network "private_network", ip: "#{compute_ex_ip}", :libvirt__network_name => "mylocalnet"
       compute.vm.provider :virtualbox do |vb|
         vb.customize ["modifyvm", :id, "--cpus", "6"]
         vb.customize ["modifyvm", :id, "--memory", "8192"]
@@ -76,6 +83,12 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         vb.customize ["modifyvm", :id, "--nictype3", "virtio"]
         vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
         vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
+      end
+      compute.vm.provider :libvirt do |lv|
+        lv.cpus = 6
+        lv.memory = 8192
+        lv.nested = true
+        lv.cpu_mode = "host-passthrough"
       end
       compute.vm.provider "vmware_fusion" do |vf|
         vf.vmx["memsize"] = "4096"
