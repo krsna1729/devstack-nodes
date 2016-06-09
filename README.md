@@ -17,7 +17,8 @@ Modify the CPU and memory allocation in the Vagrantfile as required:
 Testing
 -------
 Install Vagrant with libvirt provider. [Fedora](https://developer.fedoraproject.org/tools/vagrant/vagrant-libvirt.html). [Ubuntu](http://lost-and-found-narihiro.blogspot.com/2015/06/ubuntu-1404-install-latest-version-of.html).   
-Make sure vagrant-mutate plugin is installed, if not captured by previous intallation procedure listed. NFS is used to speed up subsequent install times. If you dont want to use NFS comment out this line   
+Make sure vagrant-mutate plugin is installed. More info about Vagrant plugins [vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt) and [vagrant-mutate](https://github.com/sciurus/vagrant-mutate).   
+NFS is used to speed up subsequent install times. If you dont want to use NFS comment out this line   
 `config.vm.synced_folder './', '/vagrant', type: 'nfs'`
 
 One time:
