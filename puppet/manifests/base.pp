@@ -17,6 +17,7 @@ $deps = [
     'python-setuptools',
     'linux-generic',
     'linux-headers-generic',
+    'libgraph-easy-perl',
     'wireshark'
 ]
 
