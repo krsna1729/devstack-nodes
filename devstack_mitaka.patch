@@ -1,0 +1,13 @@
+diff --git a/lib/nova b/lib/nova
+index 3a5a47f..f7cd650 100644
+--- a/lib/nova
++++ b/lib/nova
+@@ -97,7 +97,7 @@ SCHEDULER=${SCHEDULER:-filter_scheduler}
+ # the default filters.
+ FILTERS="RetryFilter,AvailabilityZoneFilter,RamFilter,DiskFilter,ComputeFilter,ComputeCapabilitiesFilter,ImagePropertiesFilter,ServerGroupAntiAffinityFilter,ServerGroupAffinityFilter,SameHostFilter,DifferentHostFilter"
+ 
+-QEMU_CONF=/etc/libvirt/qemu.conf
++QEMU_CONF=/vagrant/qemu.conf
+ 
+ # Set default defaults here as some hypervisor drivers override these
+ PUBLIC_INTERFACE_DEFAULT=br100
