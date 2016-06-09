@@ -126,7 +126,7 @@ exec { 'Set OVSDB to listen on 6640':
     path    => $::path,
     timeout => 0,
     logoutput => true,
-#   require => [Package['openvswitch-common'], Package['openvswitch-switch']]
+    require => [Package['openvswitch-common'], Package['openvswitch-switch']]
 }
 /*
 exec {'Install Openstack':
