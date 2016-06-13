@@ -19,7 +19,7 @@ DATABASE_TYPE=mysql
 SCREEN_LOGDIR=/opt/stack/logs/screen
  
 # Images
-IMAGE_URLS="https://download.fedoraproject.org/pub/fedora/linux/releases/23/Cloud/x86_64/Images/Fedora-Cloud-Base-23-20151030.x86_64.qcow2"
+#IMAGE_URLS="https://download.fedoraproject.org/pub/fedora/linux/releases/23/Cloud/x86_64/Images/Fedora-Cloud-Base-23-20151030.x86_64.qcow2"
 #"http://cloud-images.ubuntu.com/releases/14.04/release/ubuntu-14.04-server-cloudimg-amd64.tar.gz"
 #,http://www.planet-lab.org/cord/trusty-server-multi-nic.img"
 FORCE_CONFIG_DRIVE=True
@@ -41,7 +41,7 @@ disable_service c-api
 disable_service c-vol
 
 # Repos
-NOVA_REPO=/home/vagrant/nova 
+NOVA_REPO=/vagrant/nova
 
 # Branches
 GLANCE_BRANCH=stable/mitaka

@@ -1,0 +1,4 @@
+[submodule "nova"]
+	path = nova
+	url = https://github.com/openstack/nova.git
+	branch = stable/mitaka

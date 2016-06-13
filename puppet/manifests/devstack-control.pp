@@ -10,7 +10,6 @@ file { '/home/vagrant/.ssh/id_rsa':
     mode    => 600,
 }
 
-
 vcsrepo {'/home/vagrant/devstack':
     ensure   => present,
     provider => git,
@@ -71,18 +70,10 @@ exec { 'Install ONOS neutron plugin':
     user    => 'root',
     path    => $::path,
     timeout => 0,
-    require => [File['/home/vagrant/networking-onos/etc/conf_onos.ini'], Package[$deps]]
+    require => [File['/home/vagrant/networking-onos/etc/conf_onos.ini']]
 }
-
 
 $ctl_ip=$hosts['devstack-control']['ipaddress']
-
-
-class { 'docker':
-  docker_users => ['vagrant'],
-  #version => 'latest',
-}
-
 
 docker::run { 'onos1':
   image    => 'onosproject/onos@sha256:79e344460ce0f8755f68e5d09ef1c8fa08014f585e8a41b57a70b2f9bb388ad8',
@@ -90,19 +81,19 @@ docker::run { 'onos1':
   tty      => true,
   env      => ["ONOS_IP=$ctl_ip"],
   name     => 'onos1',
-# pull_on_start   => true,
   volumes   => ['/home/vagrant/.ssh:/root/.ssh'],
   extra_parameters => [ '--net=host' ],
-  require => Class['docker'],
 }
 
 exec { 'Activate ONOS Apps':
-    command => "sleep 20 && sshpass -p karaf ssh -o StrictHostKeyChecking=no -p 8101 karaf@${ctl_ip} 'app activate org.onosproject.drivers.ovsdb org.onosproject.openflow-base org.onosproject.lldpprovider org.onosproject.cordvtn'",
+    command => "sshpass -p karaf ssh -o StrictHostKeyChecking=no -p 8101 karaf@${ctl_ip} 'app activate org.onosproject.drivers.ovsdb org.onosproject.openflow-base org.onosproject.lldpprovider org.onosproject.cordvtn'",
     user    => 'vagrant',
     path    => $::path,
     timeout => 0,
     require => [Docker::Run['onos1'], Package[$deps]],
     logoutput => true,
+    tries => 3,
+    try_sleep   => 15,
 }
 
 exec { 'Push CORD VTN Config':
@@ -111,42 +102,7 @@ exec { 'Push CORD VTN Config':
     path    => $::path,
     timeout => 0,
     logoutput => true,
-    require => [Exec['Activate ONOS Apps'], File['/home/vagrant/network-cfg.json']]
+    require => [Exec['Activate ONOS Apps'], File['/home/vagrant/network-cfg.json']],
+    tries => 3,
+    try_sleep   => 15,
 }
-
-exec { 'Download Fedora':
-    command => "wget --progress=dot:giga -c https://download.fedoraproject.org/pub/fedora/linux/releases/23/Cloud/x86_64/Images/Fedora-Cloud-Base-23-20151030.x86_64.qcow2 -O /vagrant/Fedora-Cloud-Base-23-20151030.x86_64.qcow2",
-    user    => 'vagrant',
-    path    => $::path,
-    creates => "/vagrant/Fedora-Cloud-Base-23-20151030.x86_64.qcow2",
-    timeout => 0,
-    logoutput => true,
-    require => [Vcsrepo['/home/vagrant/devstack']]
-}
-
-file { '/home/vagrant/devstack/files/Fedora-Cloud-Base-23-20151030.x86_64.qcow2':
-   ensure => 'link',
-   target => '/vagrant/Fedora-Cloud-Base-23-20151030.x86_64.qcow2',
-}
-
-/*
-exec { 'onos1':
-    command => "docker pull onosproject/onos && docker run -e ONOS_IP=${ctl_ip} -v /home/vagrant/.ssh:/root/.ssh --net=host -t -d --name onos1 onosproject/onos > onos1",
-    user    => 'root',
-    cwd     => '/home/vagrant/',
-    path    => $::path,
-    timeout => 0,
-    creates => '/home/vagrant/onos1',
-    require => Class['docker'],
-    logoutput => true,
-}
-
-exec {'Install Openstack':
-   command => "/bin/bash ./stack.sh",
-   user    => 'vagrant',
-   cwd     => '/home/vagrant/devstack',
-   path    => $::path,
-   timeout => 0,
-   require => [File['/home/vagrant/devstack/local.conf'], Exec['Install ONOS neutron plugin']]
-}
-*/

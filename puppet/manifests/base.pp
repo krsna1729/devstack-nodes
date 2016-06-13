@@ -1,8 +1,5 @@
 $deps = [
-    'autoconf',
-    'automake',
     'curl',
-    'debhelper',
     'gcc',
     'libssl-dev',
     'libpcap-dev',
@@ -15,9 +12,8 @@ $deps = [
     'xbase-clients',
     'python-dev',
     'python-setuptools',
-    'linux-generic',
-    'linux-headers-generic',
     'libgraph-easy-perl',
+    'openvswitch-switch',
     'wireshark'
 ]
 
@@ -34,7 +30,20 @@ package { $deps:
     ensure   => installed,
 }
 
-vcsrepo {'/home/vagrant/nova':
+exec { 'Install PIP':
+    command => 'curl "https://bootstrap.pypa.io/get-pip.py" | python',
+    user    => 'root',
+    path    => $::path,
+    timeout => 0,
+    require => Package[$deps]
+}
+
+class { 'docker':
+  docker_users => ['vagrant'],
+  #version => 'latest',
+}
+
+vcsrepo {'/vagrant/nova':
     ensure   => present,
     provider => git,
     user     => 'vagrant',
@@ -43,9 +52,9 @@ vcsrepo {'/home/vagrant/nova':
     require  => Package[$deps]
 }
 
-patch::directory { '/home/vagrant/nova':
+patch::directory { '/vagrant/nova':
   diff_source => '/vagrant/nova_mitaka_bess.patch',
   strip => 1,
-  require => Vcsrepo['/home/vagrant/nova']
+  require => Vcsrepo['/vagrant/nova']
 }
 

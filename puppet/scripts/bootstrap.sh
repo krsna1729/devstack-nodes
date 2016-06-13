@@ -25,9 +25,12 @@ fi
 # Do the initial apt-get update
 echo "Initial apt-get update..."
 apt-get update >/dev/null
+apt-get install -y software-properties-common >/dev/null
 
 echo "Add ppa:syseleven-platform/virtualization-cloud..."
 add-apt-repository ppa:syseleven-platform/virtualization-cloud >/dev/null
+echo "Add ppa:suawekk/openvswitch..."
+add-apt-repository ppa:suawekk/openvswitch >/dev/null
 apt-get update >/dev/null
 
 # Install wget if we have to (some older Ubuntu versions)

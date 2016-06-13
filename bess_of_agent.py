@@ -18,7 +18,7 @@ from collections import namedtuple
 logging.basicConfig(level=logging.ERROR)
 
 PHY_NAME = "eth2"
-dpid = 1
+dpid = int(sys.argv[1])
 n_tables = 254
 
 dp = 'bess_datapath_instance'
@@ -182,7 +182,7 @@ def switch_proc(message, ofchannel):
 
     else:
         print msg
-        assert 0
+        #assert 0
 
     # TODO: Release lock
 
@@ -288,8 +288,8 @@ if __name__ == "__main__":
     dp.resume_all()
 
     def cleanup(*args):
-        dp.pause_all()
-        dp.reset_all()
+        #dp.pause_all()
+        #dp.reset_all()
         sys.exit()
 
     signal.signal(signal.SIGINT, cleanup)
