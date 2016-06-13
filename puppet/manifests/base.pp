@@ -10,6 +10,7 @@ $deps = [
     'libxml2-dev',
     'libxslt1-dev',
     'xbase-clients',
+    "linux-image-extra-$kernelrelease",
     'python-dev',
     'python-setuptools',
     'libgraph-easy-perl',
@@ -36,11 +37,6 @@ exec { 'Install PIP':
     path    => $::path,
     timeout => 0,
     require => Package[$deps]
-}
-
-class { 'docker':
-  docker_users => ['vagrant'],
-  #version => 'latest',
 }
 
 vcsrepo {'/vagrant/nova':

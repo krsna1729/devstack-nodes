@@ -75,6 +75,11 @@ exec { 'Install ONOS neutron plugin':
 
 $ctl_ip=$hosts['devstack-control']['ipaddress']
 
+class { 'docker':
+  docker_users => ['vagrant'],
+  #version => 'latest',
+}
+
 docker::run { 'onos1':
   image    => 'onosproject/onos@sha256:79e344460ce0f8755f68e5d09ef1c8fa08014f585e8a41b57a70b2f9bb388ad8',
   detach   => true,
@@ -83,10 +88,11 @@ docker::run { 'onos1':
   name     => 'onos1',
   volumes   => ['/home/vagrant/.ssh:/root/.ssh'],
   extra_parameters => [ '--net=host' ],
+  require  => Class['docker']
 }
 
 exec { 'Activate ONOS Apps':
-    command => "sshpass -p karaf ssh -o StrictHostKeyChecking=no -p 8101 karaf@${ctl_ip} 'app activate org.onosproject.drivers.ovsdb org.onosproject.openflow-base org.onosproject.lldpprovider org.onosproject.cordvtn'",
+    command => "sleep 20 && sshpass -p karaf ssh -o StrictHostKeyChecking=no -p 8101 karaf@${ctl_ip} 'app activate org.onosproject.drivers.ovsdb org.onosproject.openflow-base org.onosproject.lldpprovider org.onosproject.cordvtn'",
     user    => 'vagrant',
     path    => $::path,
     timeout => 0,
