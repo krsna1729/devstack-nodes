@@ -23,24 +23,42 @@ n_tables = 254
 
 dp = 'bess_datapath_instance'
 
+ofp_port_stats_names = '''port_no rx_packets tx_packets rx_bytes tx_bytes rx_dropped tx_dropped,
+                          rx_errors tx_errors rx_frame_err rx_over_err rx_crc_err
+                          collisions duration_sec duration_nsec'''
+of_port_stats = namedtuple('of_port_stats', ofp_port_stats_names)
+default_port_stats = of_port_stats('<port no>', 0, 0, 0, 0, 0, 0,
+                                   0, 0, 0, 0, 0,
+                                   0, 1, 1)
+'''
+of_ports_stats = {
+    OFPP_LOCAL: default_port._replace(port_no=OFPP_LOCAL),
+    1: default_port._replace(port_no=1, hw_addr=binascii.a2b_hex("0000deaddead"), name='vxlan', curr=0),
+    2: default_port._replace(port_no=2, hw_addr=binascii.a2b_hex("000000000001"), name=PHY_NAME, curr=0),
+}
+'''
+
 ofp_port_names = '''port_no hw_addr name config state
                     curr advertised supported peer curr_speed max_speed
-                    pkt_inout_socket'''
+                    pkt_inout_socket stats'''
 of_port = namedtuple('of_port', ofp_port_names)
 default_port = of_port('<port no>', '<mac address>', '<port name>', 0, 0,
                        0x802, 0, 0, 0, 0, 0,
-                       None)
+                       None, default_port_stats)
 of_ports = {
-    OFPP_LOCAL: default_port._replace(port_no=OFPP_LOCAL, hw_addr=binascii.a2b_hex("0000deadbeef"), name='br-int', curr=0),
-    1: default_port._replace(port_no=1, hw_addr=binascii.a2b_hex("0000deaddead"), name='vxlan', curr=0),
-    2: default_port._replace(port_no=2, hw_addr=binascii.a2b_hex("000000000001"), name=PHY_NAME, curr=0),
+    OFPP_LOCAL: default_port._replace(port_no=OFPP_LOCAL, hw_addr=binascii.a2b_hex("0000deadbeef"), name='br-int', curr=0,
+                                      stats=default_port_stats._replace(port_no=OFPP_LOCAL)),
+    1: default_port._replace(port_no=1, hw_addr=binascii.a2b_hex("0000deaddead"), name='vxlan', curr=0,
+                             stats=default_port_stats._replace(port_no=1)),
+    2: default_port._replace(port_no=2, hw_addr=binascii.a2b_hex("000000000001"), name=PHY_NAME, curr=0,
+                             stats=default_port_stats._replace(port_no=2)),
 }
 
 flows = {}
 channel = 0
 
 try:
-    BESS_PATH = os.getenv('BESSDK','/opt/bess')
+    BESS_PATH = os.getenv('BESSDK', '/opt/bess')
     sys.path.insert(1, '%s/libbess-python' % BESS_PATH)
     from bess import *
 except ImportError as e:
@@ -138,10 +156,10 @@ def switch_proc(message, ofchannel):
         channel.send(b.ofp_role_request(b.ofp_header(4, OFPT_ROLE_REPLY, 0, msg.header.xid), msg.role, msg.generation_id))
 
     elif msg.header.type == OFPT_FLOW_MOD:
-        print msg
         if msg.cookie in flows:
             print "I already have this FlowMod: Cookie", msg.cookie
-        flows[msg.cookie] = msg        #msg.cookie, oxm.parse_list(flows[msg.cookie].match), (flows[msg.cookie].instructions)
+        print oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+        flows[msg.cookie] = msg
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
         if msg.type == OFPMP_FLOW:
@@ -150,6 +168,12 @@ def switch_proc(message, ofchannel):
                                                                 f.idle_timeout, f.hard_timeout, f.flags, f.cookie, 0, 0,
                                                                 f.match, f.instructions)
                                                for f in flows.itervalues())]))
+        elif msg.type == OFPMP_PORT_STATS:
+            channel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
+                         msg.type, 0, ["".join(b.ofp_port_stats(ofp.stats.port_no, ofp.stats.rx_packets, ofp.stats.tx_packets, ofp.stats.rx_bytes, ofp.stats.tx_bytes, ofp.stats.rx_dropped, ofp.stats.tx_dropped,
+                                                                ofp.stats.rx_errors, ofp.stats.tx_errors, ofp.stats.rx_frame_err, ofp.stats.rx_over_err, ofp.stats.rx_crc_err,
+                                                                ofp.stats.collisions, ofp.stats.duration_sec, ofp.stats.duration_nsec)
+                                               for ofp in of_ports.itervalues())]))
         elif msg.type == OFPMP_PORT_DESC:
             channel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
                          msg.type, 0, ["".join(b.ofp_port(ofp.port_no, ofp.hw_addr, ofp.name, ofp.config, ofp.state,
@@ -158,11 +182,13 @@ def switch_proc(message, ofchannel):
         elif msg.type == OFPMP_DESC:
             channel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
                          msg.type, 0, 
-                         b.ofp_desc("UC Berkeley", "Intel Xeon", "BESS", "commit-6e343", None)))
+                         b.ofp_desc("Nicira, Inc.", "Open vSwitch", "2.4.0", None, None)))
 
-    elif msg.header.type ==  OFPT_PACKET_OUT:
+        else:
+            print 'Unhandled message OFPT_MULTIPART_REQUEST type:\n', msg
+
+    elif msg.header.type == OFPT_PACKET_OUT:
         index = msg.actions[0].port
-        print "Packet out OF Port %d, Len:%d" % (index, len(msg.data))
         sock = of_ports[index].pkt_inout_socket
         if sock is not None:
             sent = sock.send(msg.data)
@@ -181,13 +207,13 @@ def switch_proc(message, ofchannel):
         pass
 
     else:
-        print msg
+        print 'Unhandled message type:\n', msg
         #assert 0
 
     # TODO: Release lock
 
 
-def of_agent_start(ctl_ip='192.168.50.20', port=6653):
+def of_agent_start(ctl_ip='127.0.0.1', port=6653):
 
     global channel
     socket = twink.sched.socket
@@ -234,7 +260,8 @@ class PortManager(object):
         # Create corresponding pkt_in_out port
         ret, sock = init_pktinout_port(dp, dev)
         of_ports[self.of_port_num] = default_port._replace(
-            port_no=self.of_port_num, hw_addr=binascii.a2b_hex(mac[:12]), name=dev, pkt_inout_socket=sock)
+            port_no=self.of_port_num, hw_addr=binascii.a2b_hex(mac[:12]), name=dev, pkt_inout_socket=sock,
+            stats=default_port_stats._replace(port_no=self.of_port_num))
 
         ofp = of_ports[self.of_port_num]
         channel.send(b.ofp_port_status(b.ofp_header(4, OFPT_PORT_STATUS, 0, 0), OFPPR_ADD,
@@ -277,7 +304,7 @@ def nova_agent_start():
 
 def print_stupid():
     while 1:
-        print "#######################  Stupid  #######################"
+        channel.send(ofp_header_only(2, version=4))
         time.sleep(2)
     pass
 
@@ -307,13 +334,13 @@ if __name__ == "__main__":
         of_ports[port_num] = of_ports[port_num]._replace(pkt_inout_socket=sock)
         print ret, ' ', of_ports[port_num].pkt_inout_socket
 
-    while of_agent_start() == errno.ECONNREFUSED:
+    while of_agent_start(ctl_ip='192.168.50.20') == errno.ECONNREFUSED:
         pass
 
     # TODO: Start a thread that will select poll on all of those UNIX sockets
     t2 = threading.Thread(name="Stupid Thread", target=print_stupid)
     t2.setDaemon(True)
-    #t2.start()
+    t2.start()
 
     nova_agent_start()
 

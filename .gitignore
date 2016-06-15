@@ -146,3 +146,6 @@ openvswitch-*
 
 # vagrant pvt key
 insecure_private_key
+
+#pcap
+*.pcap
