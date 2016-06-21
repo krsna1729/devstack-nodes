@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from struct import *
 import twink
 from twink.ofp4 import *
 import twink.ofp4.build as b
@@ -10,18 +11,36 @@ import logging
 import zerorpc
 import signal
 import socket
+import select
 import errno
 import time
 import sys
 import os
 from collections import namedtuple
+#TODO: Remove this along with the hack of iterating to find the rule causing PACKET_IN
+from scapy.all import *
 logging.basicConfig(level=logging.ERROR)
 
+_EPOLL_BLOCK_DURATION_S = 1
+PKT_IN_BYTES = 4096
 PHY_NAME = "eth2"
 dpid = int(sys.argv[1])
 n_tables = 254
 
-dp = 'bess_datapath_instance'
+dp = None
+
+epl = 'epoll'
+
+_CONNECTIONS = {}
+
+_EVENT_LOOKUP = {
+    select.POLLIN: 'POLLIN',
+    select.POLLPRI: 'POLLPRI',
+    select.POLLOUT: 'POLLOUT',
+    select.POLLERR: 'POLLERR',
+    select.POLLHUP: 'POLLHUP',
+    select.POLLNVAL: 'POLLNVAL',
+}
 
 ofp_port_stats_names = '''port_no rx_packets tx_packets rx_bytes tx_bytes rx_dropped tx_dropped,
                           rx_errors tx_errors rx_frame_err rx_over_err rx_crc_err
@@ -66,6 +85,78 @@ except ImportError as e:
     sys.exit()
 
 
+def _get_flag_names(flags):
+    names = []
+    for bit, name in _EVENT_LOOKUP.items():
+        if flags & bit:
+            names.append(name)
+            flags -= bit
+
+            if flags == 0:
+                break
+
+    assert flags == 0,\
+        "We couldn't account for all flags: (%d)" % (flags,)
+
+    return names
+
+
+def _handle_inotify_event(fd, event_type):
+    # Common, but we're not interested.
+    if (event_type & select.POLLOUT) == 0:
+        flag_list = _get_flag_names(event_type)
+        print flag_list
+
+    s = _CONNECTIONS[fd]
+    if event_type & select.EPOLLIN:
+        data = s.recv(PKT_IN_BYTES)
+        # TODO: Formalise this. Assumption - DP to prepend cookie before sending PACKET_IN. Reason also? For now ACTION
+        # cookie = unpack('Q', data[:8])[0]
+        cookie = None
+        print 'Received data: ', data, 'bytearray: ', binascii.hexlify(bytearray(data))
+        if len(data) < 14:
+            return
+        eth = Ether(bytearray(data))
+        eth.show()
+        if Ether not in eth:
+            print 'The above frame is not Ethernet 2'
+            return
+        eth_type = eth['Ethernet'].type
+        for c, f in flows.iteritems():
+            oxm_list = oxm.parse_list(f.match.oxm_fields)
+            for i in oxm_list:
+                if i.oxm_value == eth_type:
+                    cookie = c
+                    break
+            if cookie is not None:
+                break
+
+        print 'PACKET_IN Cookie:', cookie
+        if cookie is None:
+            return
+        print flows[cookie]
+        f = flows[cookie]
+        port = 0xffffffff
+        for p, stuff in of_ports.iteritems():
+            if stuff.pkt_inout_socket == s:
+                    port = p
+                    print 'Found matching port for PKT_IN: ', port
+        match = b.ofp_match(None, None, oxm.build(None, oxm.OXM_OF_IN_PORT, False, None, 2))
+        # Get cookie from DP. Use it to lookup table_id, match. Append Data
+        '''channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
+                     0xffffffff, len(data[8:]), OFPR_ACTION, f.table_id, cookie, f.match, data[8:]))'''
+        channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
+                                     0xffffffff, len(data), OFPR_ACTION, f.table_id, cookie, match, data))
+
+
+def run_epoll():
+
+    while True:
+        events = epl.poll(_EPOLL_BLOCK_DURATION_S)
+        for fd, event_type in events:
+            _handle_inotify_event(fd, event_type)
+
+
 def connect_bess():
 
     s = BESS()
@@ -73,7 +164,7 @@ def connect_bess():
         s.connect()
     except s.APIError as e:
         print >> sys.stderr, e.message
-        sys.exit()
+        return None
     else:
         return s
 
@@ -105,6 +196,9 @@ def init_pktinout_port(bess, name):
         result = bess.create_port('UnixSocket', PKTINOUT_NAME % name, {'path': '@' + SOCKET_PATH % name})
         s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         s.connect('\0' + SOCKET_PATH % name)
+        s.setblocking(0)
+        epl.register(s.fileno())
+        _CONNECTIONS[s.fileno()] = s
     except (bess.APIError, bess.Error, socket.error) as err:
         print err
         bess.resume_all()
@@ -112,9 +206,16 @@ def init_pktinout_port(bess, name):
     else:
         # TODO: Handle VxLAN PacketOut if Correct/&Reqd. Create PI connect PI_pktinout_vxlan-->Encap()-->PO_dpif
         if name != 'vxlan':
+            # UNIX_port [PACKET_OUT]--> DP port
             bess.create_module('PortInc', 'PI_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
             bess.create_module('PortOut', 'PO_' + name, {'port': name})
             bess.connect_modules('PI_' + PKTINOUT_NAME % name, 'PO_' + name)
+
+            bess.create_module('PortOut', 'PO_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
+            bess.create_module('PortInc', 'PI_' + name, {'port': name})
+            # TODO: Below connection is temporary. Bypass flow processing.
+            # DP port --> [PACKET_IN] UNIX_port
+            bess.connect_modules('PI_' + name, 'PO_' + PKTINOUT_NAME % name)
         bess.resume_all()
         return result, s
 
@@ -150,7 +251,7 @@ def switch_proc(message, ofchannel):
         channel.send(b.ofp_switch_features(b.ofp_header(4, OFPT_FEATURES_REPLY, 0, msg.header.xid), dpid, 0, n_tables, 0, 0xF))
 
     elif msg.header.type == OFPT_GET_CONFIG_REQUEST:
-        channel.send(b.ofp_switch_config(b.ofp_header(4, OFPT_GET_CONFIG_REPLY, 0, msg.header.xid), 0, 0xffe5))
+        channel.send(b.ofp_switch_config(b.ofp_header(4, OFPT_GET_CONFIG_REPLY, 0, msg.header.xid), 0, 0xffff))
 
     elif msg.header.type == OFPT_ROLE_REQUEST:
         channel.send(b.ofp_role_request(b.ofp_header(4, OFPT_ROLE_REPLY, 0, msg.header.xid), msg.role, msg.generation_id))
@@ -181,7 +282,7 @@ def switch_proc(message, ofchannel):
                                                for ofp in of_ports.itervalues())]))
         elif msg.type == OFPMP_DESC:
             channel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
-                         msg.type, 0, 
+                         msg.type, 0,
                          b.ofp_desc("Nicira, Inc.", "Open vSwitch", "2.4.0", None, None)))
 
         else:
@@ -311,12 +412,19 @@ def print_stupid():
 
 if __name__ == "__main__":
 
-    dp = connect_bess()
+    while dp is None:
+        dp = connect_bess()
+        time.sleep(2)
     dp.resume_all()
+    epl = select.epoll()
 
     def cleanup(*args):
         #dp.pause_all()
         #dp.reset_all()
+        for sfd, s in _CONNECTIONS.iteritems():
+            epl.unregister(sfd)
+            s.close()
+        epl.close()
         sys.exit()
 
     signal.signal(signal.SIGINT, cleanup)
@@ -338,10 +446,11 @@ if __name__ == "__main__":
         pass
 
     # TODO: Start a thread that will select poll on all of those UNIX sockets
-    t2 = threading.Thread(name="Stupid Thread", target=print_stupid)
+    t2 = threading.Thread(name="PACKET_IN thread", target=run_epoll)
     t2.setDaemon(True)
     t2.start()
 
     nova_agent_start()
 
     signal.pause()
+
