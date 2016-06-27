@@ -7,6 +7,7 @@ import twink.ofp4.parse as p
 import twink.ofp4.oxm as oxm
 import threading
 import binascii
+import argparse
 import logging
 import zerorpc
 import signal
@@ -24,7 +25,7 @@ logging.basicConfig(level=logging.ERROR)
 _EPOLL_BLOCK_DURATION_S = 1
 PKT_IN_BYTES = 4096
 PHY_NAME = "eth2"
-dpid = int(sys.argv[1])
+dpid = 0xffff
 n_tables = 254
 
 dp = None
@@ -427,16 +428,23 @@ if __name__ == "__main__":
     epl = select.epoll()
 
     def cleanup(*args):
-        #dp.pause_all()
-        #dp.reset_all()
+        dp.pause_all()
         for sfd, s in _CONNECTIONS.iteritems():
             epl.unregister(sfd)
             s.close()
         epl.close()
+        dp.reset_all()
         sys.exit()
 
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d', '--dpid', default=1, type=int, help='Datapath ID default=1')
+    parser.add_argument('-c', '--ctl', default=None, help='Controller IP. default=None')
+    args = parser.parse_args()
+
+    dpid = args.dpid
 
     if init_phy_port(dp, PHY_NAME, 0)['name'] == PHY_NAME:
         print "Successfully created PMD port : %s" % PHY_NAME
@@ -450,7 +458,7 @@ if __name__ == "__main__":
         of_ports[port_num] = of_ports[port_num]._replace(pkt_inout_socket=sock)
         print ret, ' ', of_ports[port_num].pkt_inout_socket
 
-    while of_agent_start(ctl_ip='192.168.60.20') == errno.ECONNREFUSED:
+    while of_agent_start(ctl_ip=args.ctl) == errno.ECONNREFUSED:
         pass
 
     # TODO: Start a thread that will select poll on all of those UNIX sockets
