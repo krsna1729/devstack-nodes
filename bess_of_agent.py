@@ -107,19 +107,23 @@ def _handle_inotify_event(fd, event_type):
         flag_list = _get_flag_names(event_type)
         print flag_list
 
-    s = _CONNECTIONS[fd]
+    try:
+        s = _CONNECTIONS[fd]
+    except KeyError as e:
+        print >> sys.stderr, 'KeyError in epoll. Race-condition?', e.message
+        return
     if event_type & select.EPOLLIN:
         data = s.recv(PKT_IN_BYTES)
         # TODO: Formalise this. Assumption - DP to prepend cookie before sending PACKET_IN. Reason also? For now ACTION
         # cookie = unpack('Q', data[:8])[0]
         cookie = None
-        print 'Received data: ', data, 'bytearray: ', binascii.hexlify(bytearray(data))
+        #print 'Received data: ', data, 'bytearray: ', binascii.hexlify(bytearray(data))
         if len(data) < 14:
             return
         eth = Ether(bytearray(data))
-        eth.show()
+        #eth.show()
         if Ether not in eth:
-            print 'The above frame is not Ethernet 2'
+            print 'Got a PKT_IN that is not Ethernet 2'
             return
         eth_type = eth['Ethernet'].type
         for c, f in flows.iteritems():
@@ -134,7 +138,7 @@ def _handle_inotify_event(fd, event_type):
         print 'PACKET_IN Cookie:', cookie
         if cookie is None:
             return
-        print flows[cookie]
+        #print flows[cookie]
         f = flows[cookie]
         port = 0xffffffff
         for p, stuff in of_ports.iteritems():
@@ -259,7 +263,7 @@ def switch_proc(message, ofchannel):
     elif msg.header.type == OFPT_FLOW_MOD:
         if msg.cookie in flows:
             print "I already have this FlowMod: Cookie", msg.cookie
-        print oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+        print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
         flows[msg.cookie] = msg
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
@@ -292,9 +296,13 @@ def switch_proc(message, ofchannel):
         index = msg.actions[0].port
         sock = of_ports[index].pkt_inout_socket
         if sock is not None:
-            sent = sock.send(msg.data)
-            if sent != len(msg.data):
-                print "Incomplete Transmission Sent:%d, Len:%d" % (sent, len(msg.data))
+            try:
+                sent = sock.send(msg.data)
+            except socket.error as e:
+                print >> sys.stderr, e.message
+            else:
+                if sent != len(msg.data):
+                    print "Incomplete Transmission Sent:%d, Len:%d" % (sent, len(msg.data))
         else:
             print "Packet out OF Port %d, Len:%d. Failed - Null socket" % (index, len(msg.data))
 
@@ -442,7 +450,7 @@ if __name__ == "__main__":
         of_ports[port_num] = of_ports[port_num]._replace(pkt_inout_socket=sock)
         print ret, ' ', of_ports[port_num].pkt_inout_socket
 
-    while of_agent_start(ctl_ip='192.168.50.20') == errno.ECONNREFUSED:
+    while of_agent_start(ctl_ip='192.168.60.20') == errno.ECONNREFUSED:
         pass
 
     # TODO: Start a thread that will select poll on all of those UNIX sockets

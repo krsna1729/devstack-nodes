@@ -51,6 +51,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       lv.memory = 4096
       lv.nested = true
       lv.cpu_mode = "host-passthrough"
+      lv.nic_model_type = "virtio"
     end
     control.vm.provider "vmware_fusion" do |vf|
       vf.vmx["memsize"] = "4096"
@@ -89,6 +90,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         lv.memory = 8192
         lv.nested = true
         lv.cpu_mode = "host-passthrough"
+        lv.nic_model_type = "virtio"
       end
       compute.vm.provider "vmware_fusion" do |vf|
         vf.vmx["memsize"] = "4096"

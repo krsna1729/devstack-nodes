@@ -47,6 +47,13 @@ exec { 'Install twink':
     timeout => 0,
 }
 
+exec { 'Install Scapy':
+    command => 'pip install scapy',
+    user    => 'root',
+    path    => $::path,
+    timeout => 0,
+}
+
 $hosts = hiera('hosts')
 
 file { '/home/vagrant/devstack/local.conf':
