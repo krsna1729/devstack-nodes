@@ -255,7 +255,15 @@ def init_pktinout_port(bess, name):
         return {'name': None}, None
     else:
         # TODO: Handle VxLAN PacketOut if Correct/&Reqd. Create PI connect PI_pktinout_vxlan-->Encap()-->PO_dpif
-        if name != 'vxlan':
+        if name == 'vxlan':
+            pass
+        elif name == 'eth2':
+            # bess.create_module('PortInc', 'CTL_INC2', {'port': PKTINOUT_NAME % name})
+            # bess.create_module('PortOut', 'CTL_0UT2', {'port': PKTINOUT_NAME % name})
+
+            bess.create_module('PortInc', 'INC2'    , {'port': name})
+            bess.create_module('PortOut', 'OUT2'    , {'port': name})
+        else:
             # UNIX_port [PACKET_OUT]--> DP port
             bess.create_module('PortInc', 'PI_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
             bess.create_module('PortOut', 'PO_' + name, {'port': name})
@@ -500,16 +508,15 @@ def init_modules(B):
     B.pause_all()
     try:
         ### DROP ###
-        for i in range(1,6):
-            B.create_module('Sink', name='DRP' + str(i), arg=None)
+        B.create_module('Sink', name='DROP', arg=None)
+        # for i in range(1,6):
+        #     B.create_module('Sink', name='DRP' + str(i), arg=None)
 
         ### PLACEHOLDERS FOR ACTUAL PORT_INC/PORT_OUT ###
         B.create_module('Merge', name='INC1', arg=None)
         B.create_module('Sink' , name='OUT1', arg=None)
-        B.create_module('Merge', name='INC2', arg=None)
-        B.create_module('Sink' , name='OUT2', arg=None)
-        for i in range(3,5):
-            B.create_module('Sink', name='OUT' + str(i), arg=None)
+        # for i in range(3,5):
+        #     B.create_module('Sink', name='OUT' + str(i), arg=None)
         B.create_module('Sink', name='LCL', arg=None)
         B.create_module('Sink', name='CTL', arg=None)
 
@@ -634,15 +641,15 @@ def init_modules(B):
         B.connect_modules('t1_start'  , 't4_start' , 1, 0)
         B.connect_modules('t1_start'  , 't2_start' , 2, 0)
         B.connect_modules('t1_start'  , 't3_start' , 3, 0)
-        B.connect_modules('t1_start'  , 'DRP1'     , 4, 0)
+        B.connect_modules('t1_start'  , 'DROP'     , 4, 0)
 
         B.connect_modules('t2_start'  , 'grp_start', 1, 0)
         B.connect_modules('t2_start'  , 't4_start' , 2, 0)
-        B.connect_modules('t2_start'  , 'DRP2'     , 3, 0)
+        B.connect_modules('t2_start'  , 'DROP'     , 3, 0)
         B.connect_modules('t2_start'  , 'OUT2'     , 0, 0)
 
         B.connect_modules('t3_start'  , 'grp_start', 1, 0)
-        B.connect_modules('t3_start'  , 'DRP3'     , 0, 0)
+        B.connect_modules('t3_start'  , 'DROP'     , 0, 0)
 
         # B.connect_modules('t4_start'  , 't4u1'     , 1, 0)
         # B.connect_modules('t4u1'      , 'OUT4'     , 0, 0)
@@ -655,14 +662,14 @@ def init_modules(B):
         # B.connect_modules('t4_start'  , 't4u4'     , 4, 0)
         # B.connect_modules('t4u4'      , 'OUT3'     , 0, 0)
 
-        B.connect_modules('t5_start'  , 'OUT3'     , 1, 0)
-        B.connect_modules('t5_start'  , 'OUT4'     , 2, 0)
-        B.connect_modules('t5_start'  , 'DRP4'     , 0, 0)
+        # B.connect_modules('t5_start'  , 'OUT3'     , 1, 0)
+        # B.connect_modules('t5_start'  , 'OUT4'     , 2, 0)
+        B.connect_modules('t5_start'  , 'DROP'     , 0, 0)
 
         B.connect_modules('t6_start'  , 'CTL'      , 1, 0)
         B.connect_modules('t6_start'  , 'vlan_pop' , 2, 0)
         B.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
-        B.connect_modules('t6_start'  , 'DRP5'     , 0, 0)
+        B.connect_modules('t6_start'  , 'DROP'     , 0, 0)
 
         # B.connect_modules('grp_start' , 'gru1'     , 0, 0)
         # B.connect_modules('gru1'      , 'grs1'     , 0, 0)
