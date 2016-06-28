@@ -1,5 +1,5 @@
 diff --git a/core/dpdk.c b/core/dpdk.c
-index add6951..3169b75 100644
+index add6951..85be3e8 100644
 --- a/core/dpdk.c
 +++ b/core/dpdk.c
 @@ -111,6 +111,8 @@ static void init_eal(char *prog_name, int mb_per_socket, int multi_instance)

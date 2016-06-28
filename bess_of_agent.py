@@ -17,10 +17,55 @@ import errno
 import time
 import sys
 import os
+import os.path
+import cStringIO
+import pprint
 from collections import namedtuple
 #TODO: Remove this along with the hack of iterating to find the rule causing PACKET_IN
 from scapy.all import *
 logging.basicConfig(level=logging.ERROR)
+
+def aton_ip(ip):
+    return socket.inet_aton(ip)
+
+def aton_mac(mac):
+    return struct.pack('6B', *(int(x,base=16) for x in mac.split(':')))
+
+def set_val(field, val):
+    output = field.copy()
+    output.update({'value' : val})
+    return output
+
+HWSRC  ={'offset' :  0,
+         'size'   :  6}
+HWDST  ={'offset' :  6,
+         'size'   :  6}
+ETHTYPE={'offset' : 12,
+         'size'   :  2}
+VLANID ={'offset' : 14,
+         'size'   :  2}
+IPSRC  ={'offset' : 26,
+         'size'   :  4}
+IPDST  ={'offset' : 30,
+         'size'   :  4}
+
+INPORT ={'name'   : 'in_port',
+         'size'   :  1}
+TUNID  ={'name'   : 'tun_id',
+         'size'   :  4}
+TUNSRC ={'name'   : 'tun_ip_src',
+         'size'   :  4}
+TUNDST ={'name'   : 'tun_ip_dst',
+         'size'   :  4} 
+
+TYPE_QINQ=0x88A8
+TYPE_VLAN=0x8100
+
+
+
+
+
+
 
 _EPOLL_BLOCK_DURATION_S = 1
 PKT_IN_BYTES = 4096
@@ -124,7 +169,7 @@ def _handle_inotify_event(fd, event_type):
         eth = Ether(bytearray(data))
         #eth.show()
         if Ether not in eth:
-            print 'Got a PKT_IN that is not Ethernet 2'
+#            print 'Got a PKT_IN that is not Ethernet 2'
             return
         eth_type = eth['Ethernet'].type
         for c, f in flows.iteritems():
@@ -136,7 +181,7 @@ def _handle_inotify_event(fd, event_type):
             if cookie is not None:
                 break
 
-        print 'PACKET_IN Cookie:', cookie
+#        print 'PACKET_IN Cookie:', cookie
         if cookie is None:
             return
         #print flows[cookie]
@@ -246,6 +291,18 @@ def deinit_pktinout_port(bess, name):
         print err.message
 
 
+def handle_inport():
+    print 'IN_PORT'
+    
+def handle_eth_type():
+    print 'ETH_TYPE'
+        
+handle_match_on = {oxm.OXM_OF_IN_PORT : handle_inport,
+                   oxm.OXM_OF_ETH_TYPE : handle_eth_type,
+                   #           OXM_OF_ : ,
+}
+
+#dpdkIntelDPE#006
 def switch_proc(message, ofchannel):
 
     msg = p.parse(message)
@@ -265,6 +322,25 @@ def switch_proc(message, ofchannel):
         if msg.cookie in flows:
             print "I already have this FlowMod: Cookie", msg.cookie
         print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+
+        print "------------------------"
+        print "OFPT_FLOW_MOD"
+        print "table_id:\t", msg.table_id
+        print "priority:\t", msg.priority
+        print "match"
+        for f in oxm.parse_list(msg.match.oxm_fields):
+            try:
+                handle_match_on[f.oxm_field]()
+            except:
+                print 'unhandled match type'
+            print "\tfield\t", f.oxm_field,
+            print "\tvalue\t", f.oxm_value
+            if f.oxm_hasmask:
+                print "\tmask\t", f.oxm_mask
+        for i in msg.instructions:
+            print "\t", i.type
+            print "\t", i
+            
         flows[msg.cookie] = msg
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
@@ -290,8 +366,8 @@ def switch_proc(message, ofchannel):
                          msg.type, 0,
                          b.ofp_desc("Nicira, Inc.", "Open vSwitch", "2.4.0", None, None)))
 
-        else:
-            print 'Unhandled message OFPT_MULTIPART_REQUEST type:\n', msg
+#        else:
+#            print 'Unhandled message OFPT_MULTIPART_REQUEST type:\n', msg
 
     elif msg.header.type == OFPT_PACKET_OUT:
         index = msg.actions[0].port
@@ -316,8 +392,8 @@ def switch_proc(message, ofchannel):
     elif msg.header.type == OFPT_BARRIER_REQUEST:
         pass
 
-    else:
-        print 'Unhandled message type:\n', msg
+#    else:
+#        print 'Unhandled message type:\n', msg
         #assert 0
 
     # TODO: Release lock
@@ -419,6 +495,187 @@ def print_stupid():
     pass
 
 
+def init_modules(B):
+
+    B.pause_all()
+    try:
+        ### DROP ###
+        for i in range(1,6):
+            B.create_module('Sink', name='DRP' + str(i), arg=None)
+
+        ### PLACEHOLDERS FOR ACTUAL PORT_INC/PORT_OUT ###
+        B.create_module('Merge', name='INC1', arg=None)
+        B.create_module('Sink' , name='OUT1', arg=None)
+        B.create_module('Merge', name='INC2', arg=None)
+        B.create_module('Sink' , name='OUT2', arg=None)
+        for i in range(3,5):
+            B.create_module('Sink', name='OUT' + str(i), arg=None)
+        B.create_module('Sink', name='LCL', arg=None)
+        B.create_module('Sink', name='CTL', arg=None)
+
+        ### PHY PORT_INC/PORT_OUT ###
+#        B.create_module('PortInc', name='IN2', arg=None)
+#        B.create_module('PortOut', name='OUT2', arg={'port' : PHY_NAME})
+        
+        ### Table 0 ###
+        B.create_module('WildcardMatch',
+                        name='t0_start',
+                        arg={'fields' : [ETHTYPE,VLANID],
+                             'size' : 4096})
+        B.create_module('ExactMatch',
+                        name='t0_inport',
+                        arg={'fields' : [INPORT],
+                             'size' : 4096})
+        B.create_module('BPF', name='t0_p2')
+        B.create_module('BPF', name='t0_default')
+        
+        ### Table 1 ###
+        B.create_module('WildcardMatch',
+                        name='t1_start',
+                        arg={'fields' : [INPORT,IPSRC],
+                             'size' : 4096})
+        
+        ### Table 2 ###
+        B.create_module('WildcardMatch',
+                        name='t2_start',
+                        arg={'fields' : [IPSRC,IPDST],
+                             'size' : 4096})
+                
+        ### Table 3 ###
+        B.create_module('ExactMatch',
+                        name='t3_start',
+                        arg={'fields' : [INPORT],
+                             'size' : 4096})
+        
+        ### Table 4 ###
+        B.create_module('ExactMatch',
+                        name='t4_start',
+                        arg={'fields' : [IPDST],
+                             'size' : 4096})
+        # B.create_module('Update',
+        #                 name='t4u1',
+        #                 arg=[set_val(HWDST,'fa:16:3e:cf:f2:56')])
+        # B.create_module('Update',
+        #                 name='t4u2',
+        #                 arg=[set_val(HWDST,'fa:16:3e:f3:5e:82')])
+        # B.create_module('SetMetadata',
+        #                 name='t4s2',
+        #                 arg=[set_val(TUNID, 0x40c),
+        #                      set_val(TUNDST,aton_ip('1.1.1.2'))])
+        # B.create_module('Update',
+        #                 name='t4u3',
+        #                 arg=[set_val(HWDST,'fa:16:3e:da:05:ed')])
+        # B.create_module('SetMetadata',
+        #                 name='t4s3',
+        #                 arg=[set_val(TUNID, 0x406),
+        #                      set_val(TUNDST, aton_ip('1.1.1.2'))])
+        # B.create_module('Update',
+        #                 name='t4u4',
+        #                 arg=[set_val(HWDST, 'fa:16:3e:3e:82:e8')])
+        
+        ### Table 5 ###
+        B.create_module('ExactMatch',
+                        name='t5_start',
+                        arg={'fields' : [TUNID,HWSRC],
+                             'size' : 4096})
+        
+        ### Table 6 ###
+        B.create_module('BPF', name='t6_start')
+        B.create_module('VLANPop', name='vlan_pop')
+        
+        ### Group Table ###
+        B.create_module('HashLB',
+                        name='grp_start',
+                        arg=2)
+        # B.create_module('Update',
+        #                 name='gru1',
+        #                 arg=[set_val(HWDST, 'fa:16:3e:f3:5e:82')])
+        # B.create_module('SetMetadata',
+        #                 name='grs1',
+        #                 arg=[set_val(TUNID, 0x40c),
+        #                      set_val(TUNDST, aton_ip('1.1.1.2'))])
+        # B.create_module('Update',
+        #                 name='gru2',
+        #                 arg=[set_val(HWDST, 'fa:16:3e:cf:f2:56')])
+        
+        ### VXLAN Encapsulation ###
+        B.create_module('VXLANEncap',
+                        name='vxlan_out')
+        B.create_module('IPEncap',
+                        name='ip_encap')
+        B.create_module('EtherEncap',
+                        name='ether_encap')  
+
+
+        
+    #### CONNECT MODULES ####
+        B.connect_modules('vxlan_out','ip_encap'   , 0, 0)
+        B.connect_modules('ip_encap','ether_encap' , 0, 0)
+        B.connect_modules('ether_encap','OUT1'     , 0, 0)
+
+        
+        B.connect_modules('INC1'    ,'t0_start'    , 0, 0)
+        B.connect_modules('INC2'    ,'t0_start'    , 0, 0)
+        
+        B.connect_modules('t0_start', 't6_start'   , 1, 0)
+        B.connect_modules('t0_start', 't0_inport'  , 0, 0)
+        
+        B.connect_modules('t0_inport', 't0_p2'     , 1, 0)
+        B.connect_modules('t0_inport', 'OUT2'      , 2, 0)
+        B.connect_modules('t0_inport', 't0_default', 0, 0)
+    
+        B.connect_modules('t0_p2'    , 'LCL'       , 1, 0)
+        B.connect_modules('t0_p2'    , 't0_default', 0, 0)
+
+        B.connect_modules('t0_default', 'CTL'      , 1, 0)
+        B.connect_modules('t0_default', 't1_start' , 0, 0)
+
+        B.connect_modules('t1_start'  , 't5_start' , 0, 0)
+        B.connect_modules('t1_start'  , 't4_start' , 1, 0)
+        B.connect_modules('t1_start'  , 't2_start' , 2, 0)
+        B.connect_modules('t1_start'  , 't3_start' , 3, 0)
+        B.connect_modules('t1_start'  , 'DRP1'     , 4, 0)
+
+        B.connect_modules('t2_start'  , 'grp_start', 1, 0)
+        B.connect_modules('t2_start'  , 't4_start' , 2, 0)
+        B.connect_modules('t2_start'  , 'DRP2'     , 3, 0)
+        B.connect_modules('t2_start'  , 'OUT2'     , 0, 0)
+
+        B.connect_modules('t3_start'  , 'grp_start', 1, 0)
+        B.connect_modules('t3_start'  , 'DRP3'     , 0, 0)
+
+        # B.connect_modules('t4_start'  , 't4u1'     , 1, 0)
+        # B.connect_modules('t4u1'      , 'OUT4'     , 0, 0)
+        # B.connect_modules('t4_start'  , 't4u2'     , 2, 0)
+        # B.connect_modules('t4u2'      , 't4s2'     , 0, 0)
+        # B.connect_modules('t4s2'      , 'vxlan_out', 0, 0)
+        # B.connect_modules('t4_start'  , 't4u3'     , 3, 0)
+        # B.connect_modules('t4u3'      , 't4s3'     , 0, 0)
+        # B.connect_modules('t4s3'      , 'vxlan_out', 0, 0)
+        # B.connect_modules('t4_start'  , 't4u4'     , 4, 0)
+        # B.connect_modules('t4u4'      , 'OUT3'     , 0, 0)
+
+        B.connect_modules('t5_start'  , 'OUT3'     , 1, 0)
+        B.connect_modules('t5_start'  , 'OUT4'     , 2, 0)
+        B.connect_modules('t5_start'  , 'DRP4'     , 0, 0)
+
+        B.connect_modules('t6_start'  , 'CTL'      , 1, 0)
+        B.connect_modules('t6_start'  , 'vlan_pop' , 2, 0)
+        B.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
+        B.connect_modules('t6_start'  , 'DRP5'     , 0, 0)
+
+        # B.connect_modules('grp_start' , 'gru1'     , 0, 0)
+        # B.connect_modules('gru1'      , 'grs1'     , 0, 0)
+        # B.connect_modules('grs1'      , 'vxlan_out', 0, 0)
+        # B.connect_modules('grp_start' , 'gru2'     , 1, 0)
+        # B.connect_modules('gru2'      , 'OUT4'     , 0, 0)
+
+        
+    finally:
+        B.resume_all()
+
+
+        
 if __name__ == "__main__":
 
     while dp is None:
@@ -461,6 +718,8 @@ if __name__ == "__main__":
     while of_agent_start(ctl_ip=args.ctl) == errno.ECONNREFUSED:
         pass
 
+    init_modules(dp)
+        
     # TODO: Start a thread that will select poll on all of those UNIX sockets
     t2 = threading.Thread(name="PACKET_IN thread", target=run_epoll)
     t2.setDaemon(True)
