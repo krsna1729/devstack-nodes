@@ -124,7 +124,7 @@ def _handle_inotify_event(fd, event_type):
         eth = Ether(bytearray(data))
         #eth.show()
         if Ether not in eth:
-            print 'Got a PKT_IN that is not Ethernet 2'
+            #print 'Got a PKT_IN that is not Ethernet 2'
             return
         eth_type = eth['Ethernet'].type
         for c, f in flows.iteritems():
@@ -136,7 +136,7 @@ def _handle_inotify_event(fd, event_type):
             if cookie is not None:
                 break
 
-        print 'PACKET_IN Cookie:', cookie
+        #print 'PACKET_IN Cookie:', cookie
         if cookie is None:
             return
         #print flows[cookie]
@@ -145,7 +145,7 @@ def _handle_inotify_event(fd, event_type):
         for p, stuff in of_ports.iteritems():
             if stuff.pkt_inout_socket == s:
                     port = p
-                    print 'Found matching port for PKT_IN: ', port
+                    #print 'Found matching port for PKT_IN: ', port
         match = b.ofp_match(None, None, oxm.build(None, oxm.OXM_OF_IN_PORT, False, None, 2))
         # Get cookie from DP. Use it to lookup table_id, match. Append Data
         '''channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
@@ -264,7 +264,11 @@ def switch_proc(message, ofchannel):
     elif msg.header.type == OFPT_FLOW_MOD:
         if msg.cookie in flows:
             print "I already have this FlowMod: Cookie", msg.cookie
-        print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+        try:
+            oxm_list = oxm.parse_list(msg.match.oxm_fields)
+        except Exception as e:
+            print >> sys.stderr, e.message
+        print msg.cookie, oxm_list, (msg.instructions), binascii.hexlify(bytearray(msg.match.oxm_fields))
         flows[msg.cookie] = msg
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
@@ -412,13 +416,6 @@ def nova_agent_start():
     s.run()
 
 
-def print_stupid():
-    while 1:
-        channel.send(ofp_header_only(2, version=4))
-        time.sleep(2)
-    pass
-
-
 if __name__ == "__main__":
 
     while dp is None:
@@ -442,9 +439,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dpid', default=1, type=int, help='Datapath ID default=1')
     parser.add_argument('-c', '--ctl', default=None, help='Controller IP. default=None')
+    parser.add_argument('-i', '--phy', default="eth2", help='Interface name. default=eth2')
     args = parser.parse_args()
 
     dpid = args.dpid
+    PHY_NAME = args.phy
 
     if init_phy_port(dp, PHY_NAME, 0)['name'] == PHY_NAME:
         print "Successfully created PMD port : %s" % PHY_NAME
