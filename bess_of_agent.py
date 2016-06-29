@@ -344,46 +344,60 @@ def t0_match(match):
 
 ogate_maps = [dict() for i in range(0,8)]
 
-def handle_flow_mod(table_id,priority,match,i):
+def handle_flow_mod(table_id,priority,match,instr):
     global dp
     for f in match:
         print "field\t", f.oxm_field
         print "value\t", f.oxm_value
         if f.oxm_hasmask:
             print "mask\t", f.oxm_mask
+            
     dp.pause_all()
-    if table_id == 0 and i.type == OFPIT_GOTO_TABLE:
+    
+    if table_id == 0:
         print '~~~~~~~~~~~~~~~~~~~'
         values, masks = t0_match(match)
         ogate_map = ogate_maps[table_id]
-        goto_str = 't'+str(i.table_id)
         print 't0 add'
         print '\tpriority : ',priority
         print '\tvalues   : ',values
         print '\tmasks    : ',masks
-        print '\tto_table : ',goto_str
-        if not goto_str in ogate_map:
-            ogate_map[goto_str] = len(ogate_map)
-        ogate = ogate_map[goto_str]
-        print '\tgate     : ', ogate
+        if instr.type == OFPIT_GOTO_TABLE:
+            goto_str = 't'+str(instr.table_id)
+            print '\tto_table : ',goto_str
+            if not goto_str in ogate_map:
+                ogate_map[goto_str] = len(ogate_map)
+            ogate = ogate_map[goto_str]
+            print '\tgate     : ', ogate
+            try:
+                dp.connect_modules('t0', goto_str, ogate, 0)
+            except:
+                print 'PROBLEM CONNECTION MODULES'
+                dp.resume_all()
+                return
+            
+        elif instr.type == OFPIT_APPLY_ACTIONS:
+            print 'APPLY_ACTIONS'
+            dp.resume_all()
+            return
+        else:
+            print 'UNHANDLED INSTRUCTION TYPE'
+            dp.resume_all()
+            return
+        
         try:
-            dp.connect_modules('t0', goto_str, ogate, 0)    
             dp.run_module_command('t0','add',
                                   {'priority': priority,
                                    'values'  : values,
                                    'masks'   : masks,
                                    'gate'    : ogate    })
             print 'update SUCCESS'
-        except e:
+        except:
             print 'update FAIL'
-            print e        
         
-    elif i.type == OFPIT_APPLY_ACTIONS:
-        print 'APPLY_ACTIONS'
     else:
-        print 'UNHANDLED INSTRUCTION TYPE'
-
-            
+        print 'UNHANDLED TABLE'
+        
     dp.resume_all()
     
 
@@ -416,10 +430,12 @@ def switch_proc(message, ofchannel):
         match = oxm.parse_list(msg.match.oxm_fields)
         print "match", 
         print match
-        print "instr",
-        for i in msg.instructions:
-            print i
-            handle_flow_mod(msg.table_id, msg.priority, match, i)
+        if len(msg.instructions) != 1:
+            print "NOT HANDLED: NUMBER INSTRUCTIONS ", len(msg.instructions)
+            return
+        instr = msg.instructions[0]
+        print "instr", instr
+        handle_flow_mod(msg.table_id, msg.priority, match, instr)
         flows[msg.cookie] = msg
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
