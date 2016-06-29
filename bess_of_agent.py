@@ -36,21 +36,44 @@ def set_val(field, val):
     output.update({'value' : val})
     return output
 
-HWSRC  ={'offset' :  0,
-         'size'   :  6}
-HWDST  ={'offset' :  6,
-         'size'   :  6}
-ETHTYPE={'offset' : 12,
+IN_PORT ={'name'   : 'in_port',  #0
+          'size'   :  1}
+ETH_DST  ={'offset' :  6,  #3
+           'size'   :  6}
+ETH_SRC  ={'offset' :  0,  #4
+           'size'   :  6}
+ETH_TYPE={'offset' : 12,  #5
          'size'   :  2}
-VLANID ={'offset' : 14,
-         'size'   :  2}
-IPSRC  ={'offset' : 26,
-         'size'   :  4}
-IPDST  ={'offset' : 30,
-         'size'   :  4}
+VLAN_VID ={'offset' : 14,  #6
+           'size'   :  2}
+IP_PROTO={'offset' :  9, #10
+          'size'   :  1}
+IPV4_SRC  ={'offset' : 26,  #11
+            'size'   :  4}
+IPV4_DST  ={'offset' : 30,  #12
+            'size'   :  4}
+UDP_SRC   ={'offset' : 34,  #15
+            'size'   :  2}
+UDP_DST   ={'offset' : 36,  #16
+            'size'   :  2}
+ARP_TPA ={'offset' : 24,
+          'size'   :  4}  #23
 
-INPORT ={'name'   : 'in_port',
-         'size'   :  1}
+FIELD = {
+    0: IN_PORT,
+    3: ETH_DST,
+    4: ETH_SRC,
+    5: ETH_TYPE,
+    6: VLAN_VID,
+    10: IP_PROTO,
+    11: IPV4_SRC,
+    12: IPV4_DST,
+    15: UDP_SRC,
+    16: UDP_DST,
+    23: ARP_TPA
+}
+
+
 TUNID  ={'name'   : 'tun_id',
          'size'   :  4}
 TUNSRC ={'name'   : 'tun_ip_src',
@@ -74,6 +97,8 @@ dpid = 0xffff
 n_tables = 254
 
 dp = None
+flows = {}
+channel = 0
 
 epl = 'epoll'
 
@@ -119,8 +144,6 @@ of_ports = {
                              stats=default_port_stats._replace(port_no=2)),
 }
 
-flows = {}
-channel = 0
 
 try:
     BESS_PATH = os.getenv('BESSDK', '/opt/bess')
@@ -219,12 +242,12 @@ def connect_bess():
         return s
 
 
-def init_phy_port(bess, name, port_id):
+def init_phy_port(dp, name, port_id):
 
     try:
-        result = bess.create_port('PMD', name, {'port_id': port_id})
-        bess.resume_all()
-    except (bess.APIError, bess.Error)as err:
+        result = dp.create_port('PMD', name, {'port_id': port_id})
+        dp.resume_all()
+    except (dp.APIError, dp.Error)as err:
         print err.message
         return {'name': None}
     else:
@@ -235,84 +258,121 @@ PKTINOUT_NAME = 'pktinout_%s'
 SOCKET_PATH = '/tmp/bess/unix_' + PKTINOUT_NAME
 
 
-def init_pktinout_port(bess, name):
+def init_pktinout_port(dp, name):
 
     # br-int alone or vxlan too?
     if name == 'br-int':
         return None, None
 
     try:
-        bess.pause_all()
-        result = bess.create_port('UnixSocket', PKTINOUT_NAME % name, {'path': '@' + SOCKET_PATH % name})
+        dp.pause_all()
+        result = dp.create_port('UnixSocket', PKTINOUT_NAME % name, {'path': '@' + SOCKET_PATH % name})
         s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         s.connect('\0' + SOCKET_PATH % name)
         s.setblocking(0)
         epl.register(s.fileno())
         _CONNECTIONS[s.fileno()] = s
-    except (bess.APIError, bess.Error, socket.error) as err:
+    except (dp.APIError, dp.Error, socket.error) as err:
         print err
-        bess.resume_all()
+        dp.resume_all()
         return {'name': None}, None
     else:
         # TODO: Handle VxLAN PacketOut if Correct/&Reqd. Create PI connect PI_pktinout_vxlan-->Encap()-->PO_dpif
         if name == 'vxlan':
             pass
         elif name == 'eth2':
-            # bess.create_module('PortInc', 'CTL_INC2', {'port': PKTINOUT_NAME % name})
-            # bess.create_module('PortOut', 'CTL_0UT2', {'port': PKTINOUT_NAME % name})
+            # dp.create_module('PortInc', 'CTL_INC2', {'port': PKTINOUT_NAME % name})
+            # dp.create_module('PortOut', 'CTL_0UT2', {'port': PKTINOUT_NAME % name})
 
-            bess.create_module('PortInc', 'INC2'    , {'port': name})
-            bess.create_module('PortOut', 'OUT2'    , {'port': name})
+            dp.create_module('PortInc', 'INC2'    , {'port': name})
+            dp.create_module('PortOut', 'OUT2'    , {'port': name})
         else:
             # UNIX_port [PACKET_OUT]--> DP port
-            bess.create_module('PortInc', 'PI_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
-            bess.create_module('PortOut', 'PO_' + name, {'port': name})
-            bess.connect_modules('PI_' + PKTINOUT_NAME % name, 'PO_' + name)
+            dp.create_module('PortInc', 'PI_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
+            dp.create_module('PortOut', 'PO_' + name, {'port': name})
+            dp.connect_modules('PI_' + PKTINOUT_NAME % name, 'PO_' + name)
 
-            bess.create_module('PortOut', 'PO_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
-            bess.create_module('PortInc', 'PI_' + name, {'port': name})
+            dp.create_module('PortOut', 'PO_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
+            dp.create_module('PortInc', 'PI_' + name, {'port': name})
             # TODO: Below connection is temporary. Bypass flow processing.
             # DP port --> [PACKET_IN] UNIX_port
-            bess.connect_modules('PI_' + name, 'PO_' + PKTINOUT_NAME % name)
-        bess.resume_all()
+            dp.connect_modules('PI_' + name, 'PO_' + PKTINOUT_NAME % name)
+        dp.resume_all()
         return result, s
 
 
-def deinit_pktinout_port(bess, name):
+def deinit_pktinout_port(dp, name):
 
     # br-int alone or vxlan too?
     if name == 'br-int':
         return
 
     try:
-        bess.pause_all()
+        dp.pause_all()
         # TODO: Handle VxLAN PacketOut if Correct/&Reqd. Create PI connect PI_pktinout_vxlan-->Encap()-->PO_dpif
         if name != 'vxlan':
-            bess.disconnect_modules('PI_' + PKTINOUT_NAME % name, 0)
-            bess.destroy_module('PI_' + PKTINOUT_NAME % name)
-            bess.destroy_module('PO_' + name)
-            bess.destroy_port(PKTINOUT_NAME % name)
-        bess.resume_all()
+            dp.disconnect_modules('PI_' + PKTINOUT_NAME % name, 0)
+            dp.destroy_module('PI_' + PKTINOUT_NAME % name)
+            dp.destroy_module('PO_' + name)
+            dp.destroy_port(PKTINOUT_NAME % name)
+        dp.resume_all()
         return
-    except (bess.APIError, bess.Error)as err:
-        bess.resume_all()
+    except (dp.APIError, dp.Error)as err:
+        dp.resume_all()
         print err.message
 
 
-def handle_inport():
-    print 'IN_PORT'
+########## HANDLE DP MODIFICATIONS ###        
+
+def handle_goto_table(table_id,priority,match,i):
+    global dp
+    for f in match:
+        print "field\t", f.oxm_field
+        print "value\t", f.oxm_value
+        if f.oxm_hasmask:
+            print "mask\t", f.oxm_mask
+    print 'GOTO_TABLE ', i.table_id
+    dp.pause_all()
+    if table_id == 0:
+        if priority == 55000:
+            print '~~~~~~~~~~~~~~~~~~~'
+            print 'update t0_start'
+            try:
+                print 't0_start add'
+                print '\tpriority : ',priority
+                print '\tvalues   : ',[match[0].oxm_value]
+                print '\tmasks    : ',[match[0].oxm_mask]
+                print '\tgate     : ',1
+                dp.run_module_command('t0_start','add',
+                                      {'priority': priority,
+                                       'values'  : [match[0].oxm_value],
+                                       'masks'   : [match[0].oxm_mask],
+                                       'gate'     : 1 })
+                print 'update SUCCESS'
+            except e:
+                print 'update FAIL'
+                print e
+
+
+    dp.resume_all()
     
-def handle_eth_type():
-    print 'ETH_TYPE'
-        
-handle_match_on = {oxm.OXM_OF_IN_PORT : handle_inport,
-                   oxm.OXM_OF_ETH_TYPE : handle_eth_type,
-                   #           OXM_OF_ : ,
+
+def handle_apply_actions(table_id,priority,match,i):
+    for f in match:
+        print "field\t", f.oxm_field
+        print "value\t", f.oxm_value
+        if f.oxm_hasmask:
+            print "mask\t", f.oxm_mask
+    print 'APPLY_ACTIONS'
+
+
+handle_instruction = {OFPIT_GOTO_TABLE    : handle_goto_table,
+                      OFPIT_APPLY_ACTIONS : handle_apply_actions
 }
 
-#dpdkIntelDPE#006
-def switch_proc(message, ofchannel):
 
+def switch_proc(message, ofchannel):
+    
     msg = p.parse(message)
 
     # TODO: Acquire lock
@@ -327,6 +387,7 @@ def switch_proc(message, ofchannel):
         channel.send(b.ofp_role_request(b.ofp_header(4, OFPT_ROLE_REPLY, 0, msg.header.xid), msg.role, msg.generation_id))
 
     elif msg.header.type == OFPT_FLOW_MOD:
+        print "========================"
         if msg.cookie in flows:
             print "I already have this FlowMod: Cookie", msg.cookie
         print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
@@ -335,19 +396,18 @@ def switch_proc(message, ofchannel):
         print "OFPT_FLOW_MOD"
         print "table_id:\t", msg.table_id
         print "priority:\t", msg.priority
-        print "match"
-        for f in oxm.parse_list(msg.match.oxm_fields):
-            try:
-                handle_match_on[f.oxm_field]()
-            except:
-                print 'unhandled match type'
-            print "\tfield\t", f.oxm_field,
-            print "\tvalue\t", f.oxm_value
-            if f.oxm_hasmask:
-                print "\tmask\t", f.oxm_mask
+        match = oxm.parse_list(msg.match.oxm_fields)
+        print "match", 
+        print match
+        print "instr",
         for i in msg.instructions:
-            print "\t", i.type
-            print "\t", i
+            print i, '\t',
+            
+            try:
+                handle_instruction[i.type](msg.table_id, msg.priority, match, i)
+            except:
+                print 'UNHANDLED OFP INSTRUCTION TYPE'
+
             
         flows[msg.cookie] = msg
 
@@ -503,188 +563,187 @@ def print_stupid():
     pass
 
 
-def init_modules(B):
+def init_modules(dp):
 
-    B.pause_all()
+    dp.pause_all()
     try:
         ### DROP ###
-        B.create_module('Sink', name='DROP', arg=None)
+        dp.create_module('Sink', name='DROP', arg=None)
         # for i in range(1,6):
-        #     B.create_module('Sink', name='DRP' + str(i), arg=None)
+        #     dp.create_module('Sink', name='DRP' + str(i), arg=None)
 
         ### PLACEHOLDERS FOR ACTUAL PORT_INC/PORT_OUT ###
-        B.create_module('Merge', name='INC1', arg=None)
-        B.create_module('Sink' , name='OUT1', arg=None)
+        dp.create_module('Merge', name='INC1', arg=None)
+        dp.create_module('Sink' , name='OUT1', arg=None)
         # for i in range(3,5):
-        #     B.create_module('Sink', name='OUT' + str(i), arg=None)
-        B.create_module('Sink', name='LCL', arg=None)
-        B.create_module('Sink', name='CTL', arg=None)
+        #     dp.create_module('Sink', name='OUT' + str(i), arg=None)
+        dp.create_module('Sink', name='LCL', arg=None)
+        dp.create_module('Sink', name='CTL', arg=None)
 
         ### PHY PORT_INC/PORT_OUT ###
-#        B.create_module('PortInc', name='IN2', arg=None)
-#        B.create_module('PortOut', name='OUT2', arg={'port' : PHY_NAME})
+#        dp.create_module('PortInc', name='IN2', arg=None)
+#        dp.create_module('PortOut', name='OUT2', arg={'port' : PHY_NAME})
         
         ### Table 0 ###
-        B.create_module('WildcardMatch',
-                        name='t0_start',
-                        arg={'fields' : [ETHTYPE,VLANID],
-                             'size' : 4096})
-        B.create_module('ExactMatch',
-                        name='t0_inport',
-                        arg={'fields' : [INPORT],
-                             'size' : 4096})
-        B.create_module('BPF', name='t0_p2')
-        B.create_module('BPF', name='t0_default')
+        dp.create_module('WildcardMatch',
+                         name='t0_start',
+                         arg={'fields' : [VLAN_VID],
+                              'size' : 4096})
+        dp.create_module('ExactMatch',
+                         name='t0_inport',
+                         arg={'fields' : [IN_PORT],
+                              'size' : 4096})
+        dp.create_module('BPF', name='t0_p2')
+        dp.create_module('BPF', name='t0_default')
         
         ### Table 1 ###
-        B.create_module('WildcardMatch',
-                        name='t1_start',
-                        arg={'fields' : [INPORT,IPSRC],
-                             'size' : 4096})
+        dp.create_module('WildcardMatch',
+                         name='t1_start',
+                         arg={'fields' : [IN_PORT,IPV4_SRC],
+                              'size' : 4096})
         
         ### Table 2 ###
-        B.create_module('WildcardMatch',
-                        name='t2_start',
-                        arg={'fields' : [IPSRC,IPDST],
-                             'size' : 4096})
+        dp.create_module('WildcardMatch',
+                         name='t2_start',
+                         arg={'fields' : [IPV4_SRC,IPV4_DST],
+                              'size' : 4096})
                 
         ### Table 3 ###
-        B.create_module('ExactMatch',
-                        name='t3_start',
-                        arg={'fields' : [INPORT],
-                             'size' : 4096})
+        dp.create_module('ExactMatch',
+                         name='t3_start',
+                         arg={'fields' : [IN_PORT],
+                              'size' : 4096})
         
         ### Table 4 ###
-        B.create_module('ExactMatch',
-                        name='t4_start',
-                        arg={'fields' : [IPDST],
-                             'size' : 4096})
-        # B.create_module('Update',
-        #                 name='t4u1',
-        #                 arg=[set_val(HWDST,'fa:16:3e:cf:f2:56')])
-        # B.create_module('Update',
-        #                 name='t4u2',
-        #                 arg=[set_val(HWDST,'fa:16:3e:f3:5e:82')])
-        # B.create_module('SetMetadata',
-        #                 name='t4s2',
-        #                 arg=[set_val(TUNID, 0x40c),
-        #                      set_val(TUNDST,aton_ip('1.1.1.2'))])
-        # B.create_module('Update',
-        #                 name='t4u3',
-        #                 arg=[set_val(HWDST,'fa:16:3e:da:05:ed')])
-        # B.create_module('SetMetadata',
-        #                 name='t4s3',
-        #                 arg=[set_val(TUNID, 0x406),
-        #                      set_val(TUNDST, aton_ip('1.1.1.2'))])
-        # B.create_module('Update',
-        #                 name='t4u4',
-        #                 arg=[set_val(HWDST, 'fa:16:3e:3e:82:e8')])
+        dp.create_module('ExactMatch',
+                         name='t4_start',
+                         arg={'fields' : [IPV4_DST],
+                              'size' : 4096})
+        # dp.create_module('Update',
+        #                  name='t4u1',
+        #                  arg=[set_val(ETH_DST,'fa:16:3e:cf:f2:56')])
+        # dp.create_module('Update',
+        #                  name='t4u2',
+        #                  arg=[set_val(ETH_DST,'fa:16:3e:f3:5e:82')])
+        # dp.create_module('SetMetadata',
+        #                  name='t4s2',
+        #                  arg=[set_val(TUNID, 0x40c),
+        #                       set_val(TUNDST,aton_ip('1.1.1.2'))])
+        # dp.create_module('Update',
+        #                  name='t4u3',
+        #                  arg=[set_val(ETH_DST,'fa:16:3e:da:05:ed')])
+        # dp.create_module('SetMetadata',
+        #                  name='t4s3',
+        #                  arg=[set_val(TUNID, 0x406),
+        #                       set_val(TUNDST, aton_ip('1.1.1.2'))])
+        # dp.create_module('Update',
+        #                  name='t4u4',
+        #                  arg=[set_val(ETH_DST, 'fa:16:3e:3e:82:e8')])
         
         ### Table 5 ###
-        B.create_module('ExactMatch',
-                        name='t5_start',
-                        arg={'fields' : [TUNID,HWSRC],
-                             'size' : 4096})
+        dp.create_module('ExactMatch',
+                         name='t5_start',
+                         arg={'fields' : [TUNID,ETH_SRC],
+                              'size' : 4096})
         
         ### Table 6 ###
-        B.create_module('BPF', name='t6_start')
-        B.create_module('VLANPop', name='vlan_pop')
+        dp.create_module('BPF', name='t6_start')
+        dp.create_module('VLANPop', name='vlan_pop')
         
         ### Group Table ###
-        B.create_module('HashLB',
-                        name='grp_start',
-                        arg=2)
-        # B.create_module('Update',
-        #                 name='gru1',
-        #                 arg=[set_val(HWDST, 'fa:16:3e:f3:5e:82')])
-        # B.create_module('SetMetadata',
-        #                 name='grs1',
-        #                 arg=[set_val(TUNID, 0x40c),
+        dp.create_module('HashLB',
+                         name='grp_start',
+                         arg=2)
+        # dp.create_module('Update',
+        #                  name='gru1',
+        #                  arg=[set_val(ETH_DST, 'fa:16:3e:f3:5e:82')])
+        # dp.create_module('SetMetadata',
+        #                  name='grs1',
+        #                  arg=[set_val(TUNID, 0x40c),
         #                      set_val(TUNDST, aton_ip('1.1.1.2'))])
-        # B.create_module('Update',
-        #                 name='gru2',
-        #                 arg=[set_val(HWDST, 'fa:16:3e:cf:f2:56')])
+        # dp.create_module('Update',
+        #                  name='gru2',
+        #                  arg=[set_val(ETH_DST, 'fa:16:3e:cf:f2:56')])
         
         ### VXLAN Encapsulation ###
-        B.create_module('VXLANEncap',
-                        name='vxlan_out')
-        B.create_module('IPEncap',
-                        name='ip_encap')
-        B.create_module('EtherEncap',
+        dp.create_module('VXLANEncap',
+                         name='vxlan_out')
+        dp.create_module('IPEncap',
+                         name='ip_encap')
+        dp.create_module('EtherEncap',
                         name='ether_encap')  
 
 
         
     #### CONNECT MODULES ####
-        B.connect_modules('vxlan_out','ip_encap'   , 0, 0)
-        B.connect_modules('ip_encap','ether_encap' , 0, 0)
-        B.connect_modules('ether_encap','OUT1'     , 0, 0)
+        dp.connect_modules('vxlan_out','ip_encap'   , 0, 0)
+        dp.connect_modules('ip_encap','ether_encap' , 0, 0)
+        dp.connect_modules('ether_encap','OUT1'     , 0, 0)
 
         
-        B.connect_modules('INC1'    ,'t0_start'    , 0, 0)
-        B.connect_modules('INC2'    ,'t0_start'    , 0, 0)
+        dp.connect_modules('INC1'    ,'t0_start'    , 0, 0)
+        dp.connect_modules('INC2'    ,'t0_start'    , 0, 0)
         
-        B.connect_modules('t0_start', 't6_start'   , 1, 0)
-        B.connect_modules('t0_start', 't0_inport'  , 0, 0)
+        dp.connect_modules('t0_start', 't6_start'   , 1, 0)
+        dp.connect_modules('t0_start', 't0_inport'  , 0, 0)
         
-        B.connect_modules('t0_inport', 't0_p2'     , 1, 0)
-        B.connect_modules('t0_inport', 'OUT2'      , 2, 0)
-        B.connect_modules('t0_inport', 't0_default', 0, 0)
+        dp.connect_modules('t0_inport', 't0_p2'     , 1, 0)
+        dp.connect_modules('t0_inport', 'OUT2'      , 2, 0)
+        dp.connect_modules('t0_inport', 't0_default', 0, 0)
     
-        B.connect_modules('t0_p2'    , 'LCL'       , 1, 0)
-        B.connect_modules('t0_p2'    , 't0_default', 0, 0)
+        dp.connect_modules('t0_p2'    , 'LCL'       , 1, 0)
+        dp.connect_modules('t0_p2'    , 't0_default', 0, 0)
 
-        B.connect_modules('t0_default', 'CTL'      , 1, 0)
-        B.connect_modules('t0_default', 't1_start' , 0, 0)
+        dp.connect_modules('t0_default', 'CTL'      , 1, 0)
+        dp.connect_modules('t0_default', 't1_start' , 0, 0)
 
-        B.connect_modules('t1_start'  , 't5_start' , 0, 0)
-        B.connect_modules('t1_start'  , 't4_start' , 1, 0)
-        B.connect_modules('t1_start'  , 't2_start' , 2, 0)
-        B.connect_modules('t1_start'  , 't3_start' , 3, 0)
-        B.connect_modules('t1_start'  , 'DROP'     , 4, 0)
+        dp.connect_modules('t1_start'  , 't5_start' , 0, 0)
+        dp.connect_modules('t1_start'  , 't4_start' , 1, 0)
+        dp.connect_modules('t1_start'  , 't2_start' , 2, 0)
+        dp.connect_modules('t1_start'  , 't3_start' , 3, 0)
+        dp.connect_modules('t1_start'  , 'DROP'     , 4, 0)
 
-        B.connect_modules('t2_start'  , 'grp_start', 1, 0)
-        B.connect_modules('t2_start'  , 't4_start' , 2, 0)
-        B.connect_modules('t2_start'  , 'DROP'     , 3, 0)
-        B.connect_modules('t2_start'  , 'OUT2'     , 0, 0)
+        dp.connect_modules('t2_start'  , 'grp_start', 1, 0)
+        dp.connect_modules('t2_start'  , 't4_start' , 2, 0)
+        dp.connect_modules('t2_start'  , 'DROP'     , 3, 0)
+        dp.connect_modules('t2_start'  , 'OUT2'     , 0, 0)
 
-        B.connect_modules('t3_start'  , 'grp_start', 1, 0)
-        B.connect_modules('t3_start'  , 'DROP'     , 0, 0)
+        dp.connect_modules('t3_start'  , 'grp_start', 1, 0)
+        dp.connect_modules('t3_start'  , 'DROP'     , 0, 0)
 
-        # B.connect_modules('t4_start'  , 't4u1'     , 1, 0)
-        # B.connect_modules('t4u1'      , 'OUT4'     , 0, 0)
-        # B.connect_modules('t4_start'  , 't4u2'     , 2, 0)
-        # B.connect_modules('t4u2'      , 't4s2'     , 0, 0)
-        # B.connect_modules('t4s2'      , 'vxlan_out', 0, 0)
-        # B.connect_modules('t4_start'  , 't4u3'     , 3, 0)
-        # B.connect_modules('t4u3'      , 't4s3'     , 0, 0)
-        # B.connect_modules('t4s3'      , 'vxlan_out', 0, 0)
-        # B.connect_modules('t4_start'  , 't4u4'     , 4, 0)
-        # B.connect_modules('t4u4'      , 'OUT3'     , 0, 0)
+        # dp.connect_modules('t4_start'  , 't4u1'     , 1, 0)
+        # dp.connect_modules('t4u1'      , 'OUT4'     , 0, 0)
+        # dp.connect_modules('t4_start'  , 't4u2'     , 2, 0)
+        # dp.connect_modules('t4u2'      , 't4s2'     , 0, 0)
+        # dp.connect_modules('t4s2'      , 'vxlan_out', 0, 0)
+        # dp.connect_modules('t4_start'  , 't4u3'     , 3, 0)
+        # dp.connect_modules('t4u3'      , 't4s3'     , 0, 0)
+        # dp.connect_modules('t4s3'      , 'vxlan_out', 0, 0)
+        # dp.connect_modules('t4_start'  , 't4u4'     , 4, 0)
+        # dp.connect_modules('t4u4'      , 'OUT3'     , 0, 0)
 
-        # B.connect_modules('t5_start'  , 'OUT3'     , 1, 0)
-        # B.connect_modules('t5_start'  , 'OUT4'     , 2, 0)
-        B.connect_modules('t5_start'  , 'DROP'     , 0, 0)
+        # dp.connect_modules('t5_start'  , 'OUT3'     , 1, 0)
+        # dp.connect_modules('t5_start'  , 'OUT4'     , 2, 0)
+        dp.connect_modules('t5_start'  , 'DROP'     , 0, 0)
 
-        B.connect_modules('t6_start'  , 'CTL'      , 1, 0)
-        B.connect_modules('t6_start'  , 'vlan_pop' , 2, 0)
-        B.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
-        B.connect_modules('t6_start'  , 'DROP'     , 0, 0)
+        dp.connect_modules('t6_start'  , 'CTL'      , 1, 0)
+        dp.connect_modules('t6_start'  , 'vlan_pop' , 2, 0)
+        dp.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
+        dp.connect_modules('t6_start'  , 'DROP'     , 0, 0)
 
-        # B.connect_modules('grp_start' , 'gru1'     , 0, 0)
-        # B.connect_modules('gru1'      , 'grs1'     , 0, 0)
-        # B.connect_modules('grs1'      , 'vxlan_out', 0, 0)
-        # B.connect_modules('grp_start' , 'gru2'     , 1, 0)
-        # B.connect_modules('gru2'      , 'OUT4'     , 0, 0)
+        # dp.connect_modules('grp_start' , 'gru1'     , 0, 0)
+        # dp.connect_modules('gru1'      , 'grs1'     , 0, 0)
+        # dp.connect_modules('grs1'      , 'vxlan_out', 0, 0)
+        # dp.connect_modules('grp_start' , 'gru2'     , 1, 0)
+        # dp.connect_modules('gru2'      , 'OUT4'     , 0, 0)
 
         
     finally:
-        B.resume_all()
+        dp.resume_all()
 
 
         
 if __name__ == "__main__":
-
     while dp is None:
         dp = connect_bess()
         time.sleep(2)
@@ -722,10 +781,10 @@ if __name__ == "__main__":
         of_ports[port_num] = of_ports[port_num]._replace(pkt_inout_socket=sock)
         print ret, ' ', of_ports[port_num].pkt_inout_socket
 
+    init_modules(dp)
+        
     while of_agent_start(ctl_ip=args.ctl) == errno.ECONNREFUSED:
         pass
-
-    init_modules(dp)
         
     # TODO: Start a thread that will select poll on all of those UNIX sockets
     t2 = threading.Thread(name="PACKET_IN thread", target=run_epoll)
