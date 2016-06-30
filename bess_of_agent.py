@@ -351,10 +351,20 @@ def handle_flow_mod(table_id,priority,match,instr):
         print "value\t", f.oxm_value
         if f.oxm_hasmask:
             print "mask\t", f.oxm_mask
+
+    def connect_modules(goto_str, ogate):
+        dp.pause_all()
+        try:
+            dp.connect_modules('t0', goto_str, ogate, 0)
+        except Exception, err:
+            print 'PROBLEM CONNECTING MODULES'
+            print err
+        finally:
+            dp.resume_all()
+
             
-    dp.pause_all()
-    
     if table_id == 0:
+        new_connection = False
         print '~~~~~~~~~~~~~~~~~~~'
         values, masks = t0_match(match)
         ogate_map = ogate_maps[table_id]
@@ -367,38 +377,38 @@ def handle_flow_mod(table_id,priority,match,instr):
             print '\tto_table : ',goto_str
             if not goto_str in ogate_map:
                 ogate_map[goto_str] = len(ogate_map)
+                new_connection = True
             ogate = ogate_map[goto_str]
             print '\tgate     : ', ogate
-            try:
-                dp.connect_modules('t0', goto_str, ogate, 0)
-            except:
-                print 'PROBLEM CONNECTION MODULES'
-                dp.resume_all()
-                return
+            if new_connection:
+                connect_modules(goto_str,ogate)
+
             
         elif instr.type == OFPIT_APPLY_ACTIONS:
             print 'APPLY_ACTIONS'
-            dp.resume_all()
             return
         else:
             print 'UNHANDLED INSTRUCTION TYPE'
-            dp.resume_all()
             return
         
         try:
+            dp.pause_all()
             dp.run_module_command('t0','add',
                                   {'priority': priority,
                                    'values'  : values,
                                    'masks'   : masks,
                                    'gate'    : ogate    })
             print 'update SUCCESS'
-        except:
+        except Exception, err:
             print 'update FAIL'
+            print err
+        finally:
+            dp.resume_all()
         
     else:
         print 'UNHANDLED TABLE'
         
-    dp.resume_all()
+
     
 
 
