@@ -37,7 +37,7 @@ def set_val(field, val):
     return output
 
 IN_PORT ={'name'   : 'in_port',  #0
-          'size'   :  1}
+          'size'   :  4}
 ETH_DST  ={'offset' :  6,  #3
            'size'   :  6}
 ETH_SRC  ={'offset' :  0,  #4
@@ -386,7 +386,33 @@ def handle_flow_mod(table_id,priority,match,instr):
             
         elif instr.type == OFPIT_APPLY_ACTIONS:
             print 'APPLY_ACTIONS'
-            return
+            if len(instr.actions) != 1:
+                print len(instr.actions),
+                print ' ACTIONS, SKIPPING'
+                return
+            action = instr.actions[0]
+            if action.type != OFPAT_OUTPUT:
+                print 'UNHANDLED ACTION'
+                return
+            if action.port == OFPP_CONTROLLER:
+                goto_str = 'CTL'
+            elif action.port == OFPP_LOCAL:
+                goto_str = 'LCL'
+            elif action.port == 2:
+                goto_str = 'OUT2'
+            else:
+                print 'UNHANDLED PORT # ', action.port
+                return
+
+            print '\tto_port : ',goto_str
+            if not goto_str in ogate_map:
+                ogate_map[goto_str] = len(ogate_map)
+                new_connection = True
+            ogate = ogate_map[goto_str]
+            print '\tgate     : ', ogate
+            if new_connection:
+                connect_modules(goto_str,ogate)
+            
         else:
             print 'UNHANDLED INSTRUCTION TYPE'
             return
