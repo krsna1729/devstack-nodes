@@ -352,10 +352,11 @@ def handle_flow_mod(table_id,priority,match,instr):
         if f.oxm_hasmask:
             print "mask\t", f.oxm_mask
 
-    def connect_modules(goto_str, ogate):
+    def connect_modules(from_table,to_table, ogate):
+        print 'CONNECTING: ', from_table, ':', ogate, ' --> ', to_table
         dp.pause_all()
         try:
-            dp.connect_modules('t0', goto_str, ogate, 0)
+            dp.connect_modules(from_table, to_table, ogate, 0)
         except Exception, err:
             print 'PROBLEM CONNECTING MODULES'
             print err
@@ -381,7 +382,7 @@ def handle_flow_mod(table_id,priority,match,instr):
             ogate = ogate_map[goto_str]
             print '\tgate     : ', ogate
             if new_connection:
-                connect_modules(goto_str,ogate)
+                connect_modules('t0',goto_str,ogate)
 
             
         elif instr.type == OFPIT_APPLY_ACTIONS:
@@ -411,7 +412,7 @@ def handle_flow_mod(table_id,priority,match,instr):
             ogate = ogate_map[goto_str]
             print '\tgate     : ', ogate
             if new_connection:
-                connect_modules(goto_str,ogate)
+                connect_modules('t0',goto_str,ogate)
             
         else:
             print 'UNHANDLED INSTRUCTION TYPE'
