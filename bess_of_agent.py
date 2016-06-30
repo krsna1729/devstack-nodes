@@ -331,14 +331,14 @@ def t0_match(match):
     global mask_of_size
     fields = [IN_PORT, ETH_TYPE, VLAN_VID, IP_PROTO, IPV4_DST, UDP_SRC, UDP_DST, ARP_TPA]
     value  = [0 for f in fields]
-    mask   = [mask_of_size[f['size']] for f in fields]
-    for f in match:
-        i = fields.index(FIELD[f.oxm_field])
-        value[i] = f.oxm_value
-        if f.oxm_hasmask:
-            mask[i] = f.oxm_mask
+    mask   = [0 for f in fields]
+    for m in match:
+        i = fields.index(FIELD[m.oxm_field])
+        value[i] = m.oxm_value
+        if m.oxm_hasmask:
+            mask[i] = m.oxm_mask
         else:
-            mask[i] = 0
+            mask[i] = mask_of_size[fields[i]['size']]
     return (value,mask)
 
 
