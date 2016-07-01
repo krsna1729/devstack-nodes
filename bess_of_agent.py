@@ -81,6 +81,28 @@ TUNSRC ={'name'   : 'tun_ip_src',
 TUNDST ={'name'   : 'tun_ip_dst',
          'size'   :  4} 
 
+WILDCARD_MATCH='WildcardMatch'
+EXACT_MATCH='ExactMatch'
+
+TABLE_TYPE = {
+    0 : WILDCARD_MATCH,
+    1 : WILDCARD_MATCH,
+    2 : WILDCARD_MATCH,
+    3 : EXACT_MATCH,
+    4 : EXACT_MATCH,
+    5 : EXACT_MATCH,
+    6 : WILDCARD_MATCH
+}
+
+TABLE_FIELDS = {
+    0 : [IN_PORT, ETH_TYPE, VLAN_VID, IP_PROTO, IPV4_DST, UDP_SRC, UDP_DST, ARP_TPA],
+    1 : [IN_PORT,IPV4_SRC],
+    2 : [IPV4_SRC,IPV4_DST],
+    3 : [IN_PORT],
+    4 : [IPV4_DST],
+    5 : [TUNID,ETH_SRC],
+    6 : [ETH_TYPE, VLAN_VID]
+}
 
 
 
@@ -320,32 +342,50 @@ def deinit_pktinout_port(dp, name):
 
 ########## HANDLE DP MODIFICATIONS ###        
 
-mask_of_size = {
+VLAN_POP_NUM=0
+def create_new_vlan_pop():
+    global VLAN_POP_NUM
+    dp.pause_all()
+    name='vlan_pop'+str(VLAN_POP_NUM)
+    try:
+        dp.create_module('VLANPop', name=name)
+        VLAN_POP_NUM+=1
+    except Exception, err:
+            print 'PROBLEM CREATING NEW VLAN_POP'
+            print err
+    finally:
+        dp.resume_all()
+    return name     
+
+
+MASK_OF_SIZE = {
     1 : 0xff,
     2 : 0xffff,
     4 : 0xffffffff,
     6 : 0xffffffffffff
 }
-
-def t0_match(match):
-    global mask_of_size
-    fields = [IN_PORT, ETH_TYPE, VLAN_VID, IP_PROTO, IPV4_DST, UDP_SRC, UDP_DST, ARP_TPA]
+def table_match(tid, match):
+    global TABLE_FIELDS
+    global MASK_OF_SIZE
+    fields = TABLE_FIELDS[tid]
     value  = [0 for f in fields]
     mask   = [0 for f in fields]
     for m in match:
         i = fields.index(FIELD[m.oxm_field])
         value[i] = m.oxm_value
-        if m.oxm_hasmask:
-            mask[i] = m.oxm_mask
-        else:
-            mask[i] = mask_of_size[fields[i]['size']]
+        if TABLE_TYPE[tid] == WILDCARD_MATCH:
+            if m.oxm_hasmask:
+                mask[i] = m.oxm_mask
+            else:
+                mask[i] = MASK_OF_SIZE[fields[i]['size']]
     return (value,mask)
 
 
-ogate_maps = [dict() for i in range(0,8)]
-
+# ASSUMING 8 TABLES
+OGATE_MAPS = [dict() for i in range(0,8)]
 def handle_flow_mod(table_id,priority,match,instr):
     global dp
+    global OGATE_MAPS
     for f in match:
         print "field\t", f.oxm_field
         print "value\t", f.oxm_value
@@ -364,79 +404,121 @@ def handle_flow_mod(table_id,priority,match,instr):
             dp.resume_all()
 
             
-    if table_id == 0:
-        new_connection = False
-        print '~~~~~~~~~~~~~~~~~~~'
-        values, masks = t0_match(match)
-        ogate_map = ogate_maps[table_id]
-        print 't0 add'
-        print '\tpriority : ',priority
-        print '\tvalues   : ',values
-        print '\tmasks    : ',masks
-        if instr.type == OFPIT_GOTO_TABLE:
-            goto_str = 't'+str(instr.table_id)
-            print '\tto_table : ',goto_str
-            if not goto_str in ogate_map:
-                ogate_map[goto_str] = len(ogate_map)
-                new_connection = True
-            ogate = ogate_map[goto_str]
-            print '\tgate     : ', ogate
-            if new_connection:
-                connect_modules('t0',goto_str,ogate)
-
+    ### CODE BELOW UNTESTED ON GRP TABLE
             
-        elif instr.type == OFPIT_APPLY_ACTIONS:
-            print 'APPLY_ACTIONS'
-            if len(instr.actions) != 1:
-                print len(instr.actions),
-                print ' ACTIONS, SKIPPING'
-                return
-            action = instr.actions[0]
-            if action.type != OFPAT_OUTPUT:
+    new_connection = False
+    table_name = 't'+str(table_id)
+    print '~~~~~~~~~~~~~~~~~~~'
+    values, masks = table_match(table_id,match)
+    ogate_map = OGATE_MAPS[table_id]
+    print table_name, ' add'
+    print '\tpriority : ',priority
+    print '\tvalues   : ',values
+    if TABLE_TYPE[table_id] == WILDCARD_MATCH:
+        print '\tmasks    : ',masks
+
+
+    ### GOTO_TABLE
+    if instr.type == OFPIT_GOTO_TABLE:
+        goto_str = 't'+str(instr.table_id)
+        print '\tto_table : ',goto_str
+        if not goto_str in ogate_map:
+            ogate_map[goto_str] = len(ogate_map)
+            new_connection = True
+        ogate = ogate_map[goto_str]
+        print '\tgate     : ', ogate
+        if new_connection:
+            connect_modules(table_name,goto_str,ogate)
+
+    ### APPLY_ACTIONS
+    elif instr.type == OFPIT_APPLY_ACTIONS:
+        print 'APPLY_ACTIONS'
+        initial_action = True
+        predecessor = table_name
+        
+        for action in instr.actions:
+
+            if action.type == OFPAT_OUTPUT:
+                # MAP OF PORTS TO MODULES
+                if action.port == OFPP_CONTROLLER:
+                    goto_str = 'CTL'
+                elif action.port == OFPP_LOCAL:
+                    goto_str = 'LCL'
+                elif action.port == 2:
+                    goto_str = 'OUT2'
+                else:
+                    print 'UNHANDLED PORT # ', action.port
+                    return
+
+                # DETERMINE OUTPUT GATE
+                print '\tto_port : ',goto_str
+                if initial_action:
+                    if not goto_str in ogate_map:
+                        ogate_map[goto_str] = len(ogate_map)
+                        new_connection = True
+                    ogate = ogate_map[goto_str]
+                else:
+                    new_connection = True
+                    ogate = 0
+                print '\tgate     : ', ogate
+
+                # CREATE CONNECTION, IF NECESSARY
+                if new_connection:
+                    connect_modules(predecessor,goto_str,ogate)
+
+            elif action.type == OFPAT_POP_VLAN:
+                # WE WILL RUN THE LOOP ONCE FOR EACH UNIQUE INSTRS STRING
+                k = str(instr.actions)
+                if not k in ogate_map:
+                    ogate_map[k] = len(ogate_map)
+                    new_connection = True
+                ogate = ogate_map[k]
+                print '\tgate     : ', ogate
+
+                # CREATE CONNECTION AND CONTINUE LOOP, IF NECESSARY
+                if new_connection:
+                    goto_str = create_new_vlan_pop()
+                    connect_modules(predecessor,goto_str,ogate)
+                    predecessor=goto_str
+                    initial_action=False
+                else:
+                    break
+
+            # UNHANDLED ACTION
+            else:
                 print 'UNHANDLED ACTION'
                 return
-            if action.port == OFPP_CONTROLLER:
-                goto_str = 'CTL'
-            elif action.port == OFPP_LOCAL:
-                goto_str = 'LCL'
-            elif action.port == 2:
-                goto_str = 'OUT2'
-            else:
-                print 'UNHANDLED PORT # ', action.port
-                return
 
-            print '\tto_port : ',goto_str
-            if not goto_str in ogate_map:
-                ogate_map[goto_str] = len(ogate_map)
-                new_connection = True
-            ogate = ogate_map[goto_str]
-            print '\tgate     : ', ogate
-            if new_connection:
-                connect_modules('t0',goto_str,ogate)
-            
-        else:
-            print 'UNHANDLED INSTRUCTION TYPE'
-            return
-        
-        try:
-            dp.pause_all()
-            dp.run_module_command('t0','add',
+
+    # UNHANDLED INSTRUCTION TYPE
+    else:
+        print 'UNHANDLED INSTRUCTION TYPE'
+        return
+
+    try:
+        dp.pause_all()
+        if TABLE_TYPE[table_id] == WILDCARD_MATCH:
+            dp.run_module_command(table_name, 'add',
                                   {'priority': priority,
                                    'values'  : values,
                                    'masks'   : masks,
                                    'gate'    : ogate    })
             print 'update SUCCESS'
-        except Exception, err:
-            print 'update FAIL'
-            print err
-        finally:
-            dp.resume_all()
-        
-    else:
-        print 'UNHANDLED TABLE'
-        
+        elif TABLE_TYPE(table_id) == EXACT_MATCH:
+            ### UNTESTED !!!
+            dp.run_module_command(table_name, 'add',
+                                  {'fields'  : values,
+                                   'gate'    : ogate    })
+            print 'update SUCCESS'
+        else:
+            print 'UNHANDLED TABLE TYPE ', TABLE_TYPE(table_id)
 
-    
+    except Exception, err:
+        print 'update FAIL'
+        print err
+    finally:
+        dp.resume_all()
+                    
 
 
 def switch_proc(message, ofchannel):
@@ -468,11 +550,11 @@ def switch_proc(message, ofchannel):
         print "match", 
         print match
         if len(msg.instructions) != 1:
-            print "NOT HANDLED: NUMBER INSTRUCTIONS ", len(msg.instructions)
+            print len(msg.instructions), ' INSTRUCTIONS: NOT HANDLED'
             return
-        instr = msg.instructions[0]
-        print "instr", instr
-        handle_flow_mod(msg.table_id, msg.priority, match, instr)
+        i = msg.instructions[0]
+        print "instr", i
+        handle_flow_mod(msg.table_id, msg.priority, match, i)
         flows[msg.cookie] = msg
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
@@ -627,18 +709,19 @@ def print_stupid():
     pass
 
 
+    
 def init_modules(dp):
-
+    global TABLE_FIELDS
     dp.pause_all()
     try:
         ### DROP ###
-        dp.create_module('Sink', name='DROP', arg=None)
+#        dp.create_module('Sink', name='DROP', arg=None)
         # for i in range(1,6):
         #     dp.create_module('Sink', name='DRP' + str(i), arg=None)
 
         ### PLACEHOLDERS FOR ACTUAL PORT_INC/PORT_OUT ###
         dp.create_module('Merge', name='INC1', arg=None)
-        dp.create_module('Sink' , name='OUT1', arg=None)
+#        dp.create_module('Sink' , name='OUT1', arg=None)
         # for i in range(3,5):
         #     dp.create_module('Sink', name='OUT' + str(i), arg=None)
         dp.create_module('Sink', name='LCL', arg=None)
@@ -647,36 +730,36 @@ def init_modules(dp):
         ### PHY PORT_INC/PORT_OUT ###
 #        dp.create_module('PortInc', name='IN2', arg=None)
 #        dp.create_module('PortOut', name='OUT2', arg={'port' : PHY_NAME})
+
+
+        ### Table 0-6 ###
+        for i in range(0,7):
+            dp.create_module(TABLE_TYPE[i],
+                         name='t'+str(i),
+                         arg={'fields' : TABLE_FIELDS[i],
+                              'size' : 4096})
+
+            
+        ### VXLAN Encapsulation ###
+        dp.create_module('VXLANEncap',
+                         name='OUT_VXLAN')
+        dp.create_module('IPEncap',
+                         name='ip_encap')
+        dp.create_module('EtherEncap',
+                        name='ether_encap')  
+
+
         
-        ### Table 0 ###
-        dp.create_module('WildcardMatch',
-                         name='t0',
-                         arg={'fields' : [IN_PORT, ETH_TYPE, VLAN_VID, IP_PROTO, IPV4_DST, UDP_SRC, UDP_DST, ARP_TPA],
-                              'size' : 4096})
-        
-        ### Table 1 ###
-        dp.create_module('WildcardMatch',
-                         name='t1',
-                         arg={'fields' : [IN_PORT,IPV4_SRC],
-                              'size' : 4096})
-        
-        ### Table 2 ###
-        dp.create_module('WildcardMatch',
-                         name='t2',
-                         arg={'fields' : [IPV4_SRC,IPV4_DST],
-                              'size' : 4096})
-                
-        ### Table 3 ###
-        dp.create_module('ExactMatch',
-                         name='t3',
-                         arg={'fields' : [IN_PORT],
-                              'size' : 4096})
-        
-        ### Table 4 ###
-        dp.create_module('ExactMatch',
-                         name='t4',
-                         arg={'fields' : [IPV4_DST],
-                              'size' : 4096})
+        #### CONNECT MODULES ####
+        dp.connect_modules('INC1'    ,'t0'    , 0, 0)
+        dp.connect_modules('INC2'    ,'t0'    , 0, 0)
+    
+        dp.connect_modules('OUT_VXLAN','ip_encap'   , 0, 0)
+        dp.connect_modules('ip_encap','ether_encap' , 0, 0)
+        dp.connect_modules('ether_encap','OUT2'     , 0, 0)
+            
+#        dp.create_module('VLANPop', name='vlan_pop')
+            
         # dp.create_module('Update',
         #                  name='t4u1',
         #                  arg=[set_val(ETH_DST,'fa:16:3e:cf:f2:56')])
@@ -699,19 +782,19 @@ def init_modules(dp):
         #                  arg=[set_val(ETH_DST, 'fa:16:3e:3e:82:e8')])
         
         ### Table 5 ###
-        dp.create_module('ExactMatch',
-                         name='t5',
-                         arg={'fields' : [TUNID,ETH_SRC],
-                              'size' : 4096})
+        # dp.create_module(EXACT_MATCH,
+        #                  name='t5',
+        #                  arg={'fields' : [TUNID,ETH_SRC],
+        #                       'size' : 4096})
         
         ### Table 6 ###
-        dp.create_module('BPF', name='t6')
-        dp.create_module('VLANPop', name='vlan_pop')
+        # dp.create_module('BPF', name='t6')
+        # dp.create_module('VLANPop', name='vlan_pop')
         
         ### Group Table ###
-        dp.create_module('HashLB',
-                         name='grp',
-                         arg=2)
+        # dp.create_module('HashLB',
+        #                  name='grp',
+        #                  arg=2)
         # dp.create_module('Update',
         #                  name='gru1',
         #                  arg=[set_val(ETH_DST, 'fa:16:3e:f3:5e:82')])
@@ -723,62 +806,44 @@ def init_modules(dp):
         #                  name='gru2',
         #                  arg=[set_val(ETH_DST, 'fa:16:3e:cf:f2:56')])
         
-        ### VXLAN Encapsulation ###
-        dp.create_module('VXLANEncap',
-                         name='vxlan_out')
-        dp.create_module('IPEncap',
-                         name='ip_encap')
-        dp.create_module('EtherEncap',
-                        name='ether_encap')  
-
-
         
-    #### CONNECT MODULES ####
-        dp.connect_modules('vxlan_out','ip_encap'   , 0, 0)
-        dp.connect_modules('ip_encap','ether_encap' , 0, 0)
-        dp.connect_modules('ether_encap','OUT1'     , 0, 0)
+        # dp.connect_modules('t1'  , 't5' , 0, 0)
+        # dp.connect_modules('t1'  , 't4' , 1, 0)
+        # dp.connect_modules('t1'  , 't2' , 2, 0)
+        # dp.connect_modules('t1'  , 't3' , 3, 0)
+        # dp.connect_modules('t1'  , 'DROP'     , 4, 0)
 
-        
-        dp.connect_modules('INC1'    ,'t0'    , 0, 0)
-        dp.connect_modules('INC2'    ,'t0'    , 0, 0)
-        
-        dp.connect_modules('t1'  , 't5' , 0, 0)
-        dp.connect_modules('t1'  , 't4' , 1, 0)
-        dp.connect_modules('t1'  , 't2' , 2, 0)
-        dp.connect_modules('t1'  , 't3' , 3, 0)
-        dp.connect_modules('t1'  , 'DROP'     , 4, 0)
+        # dp.connect_modules('t2'  , 'grp', 1, 0)
+        # dp.connect_modules('t2'  , 't4' , 2, 0)
+        # dp.connect_modules('t2'  , 'DROP'     , 3, 0)
+        # dp.connect_modules('t2'  , 'OUT2'     , 0, 0)
 
-        dp.connect_modules('t2'  , 'grp', 1, 0)
-        dp.connect_modules('t2'  , 't4' , 2, 0)
-        dp.connect_modules('t2'  , 'DROP'     , 3, 0)
-        dp.connect_modules('t2'  , 'OUT2'     , 0, 0)
-
-        dp.connect_modules('t3'  , 'grp', 1, 0)
-        dp.connect_modules('t3'  , 'DROP'     , 0, 0)
+        # dp.connect_modules('t3'  , 'grp', 1, 0)
+        # dp.connect_modules('t3'  , 'DROP'     , 0, 0)
 
         # dp.connect_modules('t4'  , 't4u1'     , 1, 0)
         # dp.connect_modules('t4u1'      , 'OUT4'     , 0, 0)
         # dp.connect_modules('t4'  , 't4u2'     , 2, 0)
         # dp.connect_modules('t4u2'      , 't4s2'     , 0, 0)
-        # dp.connect_modules('t4s2'      , 'vxlan_out', 0, 0)
+        # dp.connect_modules('t4s2'      , 'OUT_VXLAN', 0, 0)
         # dp.connect_modules('t4'  , 't4u3'     , 3, 0)
         # dp.connect_modules('t4u3'      , 't4s3'     , 0, 0)
-        # dp.connect_modules('t4s3'      , 'vxlan_out', 0, 0)
+        # dp.connect_modules('t4s3'      , 'OUT_VXLAN', 0, 0)
         # dp.connect_modules('t4'  , 't4u4'     , 4, 0)
         # dp.connect_modules('t4u4'      , 'OUT3'     , 0, 0)
 
         # dp.connect_modules('t5'  , 'OUT3'     , 1, 0)
         # dp.connect_modules('t5'  , 'OUT4'     , 2, 0)
-        dp.connect_modules('t5'  , 'DROP'     , 0, 0)
+        # dp.connect_modules('t5'  , 'DROP'     , 0, 0)
 
-        dp.connect_modules('t6'  , 'CTL'      , 1, 0)
-        dp.connect_modules('t6'  , 'vlan_pop' , 2, 0)
-        dp.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
-        dp.connect_modules('t6'  , 'DROP'     , 0, 0)
+        # dp.connect_modules('t6'  , 'CTL'      , 1, 0)
+        # dp.connect_modules('t6'  , 'vlan_pop' , 2, 0)
+        # dp.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
+        # dp.connect_modules('t6'  , 'DROP'     , 0, 0)
 
         # dp.connect_modules('grp' , 'gru1'     , 0, 0)
         # dp.connect_modules('gru1'      , 'grs1'     , 0, 0)
-        # dp.connect_modules('grs1'      , 'vxlan_out', 0, 0)
+        # dp.connect_modules('grs1'      , 'OUT_VXLAN', 0, 0)
         # dp.connect_modules('grp' , 'gru2'     , 1, 0)
         # dp.connect_modules('gru2'      , 'OUT4'     , 0, 0)
 
