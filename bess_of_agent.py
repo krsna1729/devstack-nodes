@@ -732,13 +732,22 @@ def init_modules(dp):
 #        dp.create_module('PortOut', name='OUT2', arg={'port' : PHY_NAME})
 
 
+
+
         ### Table 0-6 ###
         for i in range(0,7):
             dp.create_module(TABLE_TYPE[i],
-                         name='t'+str(i),
-                         arg={'fields' : TABLE_FIELDS[i],
-                              'size' : 4096})
+                             name='t'+str(i),
+                             arg={'fields' : TABLE_FIELDS[i],
+                                  'size' : 4096})
 
+        dp.create_module(EXACT_MATCH,
+                         name='is_vxlan',
+                         arg={'fields' : [UDP_DST],
+                              'size' : 4096})
+        # NOTE: MAY NEED TO ADD METADATA TAGGING FOR VXLAN INFO HERE
+        dp.create_module('VXLANDecap',
+                         name='IN_VXLAN')
             
         ### VXLAN Encapsulation ###
         dp.create_module('VXLANEncap',
@@ -751,9 +760,18 @@ def init_modules(dp):
 
         
         #### CONNECT MODULES ####
-        dp.connect_modules('INC1'    ,'t0'    , 0, 0)
-        dp.connect_modules('INC2'    ,'t0'    , 0, 0)
-    
+        dp.connect_modules('INC2'    ,'is_vxlan'    , 0, 0)
+        dp.run_module_command('is_vxlan',
+                              'set_default_gate',
+                              0)
+        dp.connect_modules('is_vxlan','t0'          , 0, 0)
+        dp.run_module_command('is_vxlan',
+                              'add',
+                              {'fields': [4789],'gate': 0})
+        dp.connect_modules('is_vxlan','IN_VXLAN'    , 1, 0)
+        dp.connect_modules('IN_VXLAN','t0'          , 0, 0)
+                                                      
+        
         dp.connect_modules('OUT_VXLAN','ip_encap'   , 0, 0)
         dp.connect_modules('ip_encap','ether_encap' , 0, 0)
         dp.connect_modules('ether_encap','OUT2'     , 0, 0)
