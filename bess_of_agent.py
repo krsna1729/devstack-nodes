@@ -111,6 +111,7 @@ TABLE_FIELDS = {
 _EPOLL_BLOCK_DURATION_S = 1
 PKT_IN_BYTES = 4096
 PHY_NAME = "eth2"
+LCL_NAME = "br-int"
 dpid = 0xffff
 n_tables = 254
 
@@ -261,7 +262,7 @@ def connect_bess():
 
 
 def init_phy_port(dp, name, port_id):
-
+    dp.pause_all()
     try:
         result = dp.create_port('PMD', name, {'port_id': port_id})
         dp.resume_all()
@@ -272,6 +273,22 @@ def init_phy_port(dp, name, port_id):
         return result
 
 
+def init_lcl_port(dp, name, port_id):
+    dp.pause_all()
+    try:
+        result = dp.create_port('VPort', name, {'port_id': port_id})
+        dp.create_module('PortInc', 'INC_LCL', {'port': name})
+        dp.create_module('PortOut', 'OUT_LCL', {'port': name})
+        dp.resume_all()
+    except (dp.APIError, dp.Error)as err:
+        print err.message
+        return {'name': None}
+    else:
+        return result
+
+
+
+    
 PKTINOUT_NAME = 'pktinout_%s'
 SOCKET_PATH = '/tmp/bess/unix_' + PKTINOUT_NAME
 
@@ -299,11 +316,10 @@ def init_pktinout_port(dp, name):
         if name == 'vxlan':
             pass
         elif name == 'eth2':
-            # dp.create_module('PortInc', 'CTL_INC2', {'port': PKTINOUT_NAME % name})
+            # dp.create_module('PortInc', 'CTL_INC_PHY', {'port': PKTINOUT_NAME % name})
             # dp.create_module('PortOut', 'CTL_0UT2', {'port': PKTINOUT_NAME % name})
-
-            dp.create_module('PortInc', 'INC2'    , {'port': name})
-            dp.create_module('PortOut', 'OUT2'    , {'port': name})
+            dp.create_module('PortInc', 'INC_PHY'    , {'port': name})
+            dp.create_module('PortOut', 'OUT_PHY'    , {'port': name})
         else:
             # UNIX_port [PACKET_OUT]--> DP port
             dp.create_module('PortInc', 'PI_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
@@ -441,11 +457,11 @@ def handle_flow_mod(table_id,priority,match,instr):
             if action.type == OFPAT_OUTPUT:
                 # MAP OF PORTS TO MODULES
                 if action.port == OFPP_CONTROLLER:
-                    goto_str = 'CTL'
+                    goto_str = 'OUT_CTL'
                 elif action.port == OFPP_LOCAL:
-                    goto_str = 'LCL'
+                    goto_str = 'OUT_LCL'
                 elif action.port == 2:
-                    goto_str = 'OUT2'
+                    goto_str = 'OUT_PHY'
                 else:
                     print 'UNHANDLED PORT # ', action.port
                     return
@@ -714,153 +730,41 @@ def init_modules(dp):
     global TABLE_FIELDS
     dp.pause_all()
     try:
-        ### DROP ###
-#        dp.create_module('Sink', name='DROP', arg=None)
-        # for i in range(1,6):
-        #     dp.create_module('Sink', name='DRP' + str(i), arg=None)
-
-        ### PLACEHOLDERS FOR ACTUAL PORT_INC/PORT_OUT ###
-        dp.create_module('Merge', name='INC1', arg=None)
-#        dp.create_module('Sink' , name='OUT1', arg=None)
-        # for i in range(3,5):
-        #     dp.create_module('Sink', name='OUT' + str(i), arg=None)
-        dp.create_module('Sink', name='LCL', arg=None)
+        ### PLACEHOLDER ###
         dp.create_module('Sink', name='CTL', arg=None)
 
-        ### PHY PORT_INC/PORT_OUT ###
-#        dp.create_module('PortInc', name='IN2', arg=None)
-#        dp.create_module('PortOut', name='OUT2', arg={'port' : PHY_NAME})
-
-
-
-
-        ### Table 0-6 ###
+        
+        ### Tables 0-6 ###
         for i in range(0,7):
             dp.create_module(TABLE_TYPE[i],
                              name='t'+str(i),
                              arg={'fields' : TABLE_FIELDS[i],
                                   'size' : 4096})
 
-        dp.create_module('BPF',name='is_vxlan')
-        # NOTE: MAY NEED TO ADD METADATA TAGGING FOR VXLAN INFO HERE
-        dp.create_module('VXLANDecap',
-                         name='IN_VXLAN')
+        ### Group Table ###
             
-        ### VXLAN Encapsulation ###
-        dp.create_module('VXLANEncap',
-                         name='OUT_VXLAN')
-        dp.create_module('IPEncap',
-                         name='ip_encap')
-        dp.create_module('EtherEncap',
-                        name='ether_encap')  
-
-
-        
-        #### CONNECT MODULES ####
-        dp.connect_modules('INC2'    ,'is_vxlan'    , 0, 0)
-        dp.connect_modules('is_vxlan','t0'          , 0, 0)
+            
+        ### Incoming Static Pipeline ###
+        dp.create_module('BPF'          ,name='is_vxlan')
+        dp.create_module('VXLANDecap'   , name='IN_VXLAN')
+        dp.connect_modules('INC_PHY'    ,'is_vxlan'    , 0, 0)
+        dp.connect_modules('is_vxlan'   ,'t0'          , 0, 0)
         dp.run_module_command('is_vxlan',
                               'add',
                               arg=[{'filter':'ip and udp dst port 4789',
                                     'gate':1}])
-        dp.connect_modules('is_vxlan','IN_VXLAN'    , 1, 0)
-        dp.connect_modules('IN_VXLAN','t0'          , 0, 0)
+        dp.connect_modules('is_vxlan'   ,'IN_VXLAN'    , 1, 0)
+        dp.connect_modules('IN_VXLAN'   ,'t0'          , 0, 0)
                                                       
-        
-        dp.connect_modules('OUT_VXLAN','ip_encap'   , 0, 0)
-        dp.connect_modules('ip_encap','ether_encap' , 0, 0)
-        dp.connect_modules('ether_encap','OUT2'     , 0, 0)
+
+        ### Outgoing Static Pipeline ###
+        dp.create_module('VXLANEncap'   , name='OUT_VXLAN')
+        dp.create_module('IPEncap'      , name='ip_encap')
+        dp.create_module('EtherEncap'   , name='ether_encap')  
+        dp.connect_modules('OUT_VXLAN'  , 'ip_encap'   , 0, 0)
+        dp.connect_modules('ip_encap'   , 'ether_encap', 0, 0)
+        dp.connect_modules('ether_encap', 'OUT_PHY'    , 0, 0)
             
-#        dp.create_module('VLANPop', name='vlan_pop')
-            
-        # dp.create_module('Update',
-        #                  name='t4u1',
-        #                  arg=[set_val(ETH_DST,'fa:16:3e:cf:f2:56')])
-        # dp.create_module('Update',
-        #                  name='t4u2',
-        #                  arg=[set_val(ETH_DST,'fa:16:3e:f3:5e:82')])
-        # dp.create_module('SetMetadata',
-        #                  name='t4s2',
-        #                  arg=[set_val(TUNID, 0x40c),
-        #                       set_val(TUNDST,aton_ip('1.1.1.2'))])
-        # dp.create_module('Update',
-        #                  name='t4u3',
-        #                  arg=[set_val(ETH_DST,'fa:16:3e:da:05:ed')])
-        # dp.create_module('SetMetadata',
-        #                  name='t4s3',
-        #                  arg=[set_val(TUNID, 0x406),
-        #                       set_val(TUNDST, aton_ip('1.1.1.2'))])
-        # dp.create_module('Update',
-        #                  name='t4u4',
-        #                  arg=[set_val(ETH_DST, 'fa:16:3e:3e:82:e8')])
-        
-        ### Table 5 ###
-        # dp.create_module(EXACT_MATCH,
-        #                  name='t5',
-        #                  arg={'fields' : [TUNID,ETH_SRC],
-        #                       'size' : 4096})
-        
-        ### Table 6 ###
-        # dp.create_module('BPF', name='t6')
-        # dp.create_module('VLANPop', name='vlan_pop')
-        
-        ### Group Table ###
-        # dp.create_module('HashLB',
-        #                  name='grp',
-        #                  arg=2)
-        # dp.create_module('Update',
-        #                  name='gru1',
-        #                  arg=[set_val(ETH_DST, 'fa:16:3e:f3:5e:82')])
-        # dp.create_module('SetMetadata',
-        #                  name='grs1',
-        #                  arg=[set_val(TUNID, 0x40c),
-        #                      set_val(TUNDST, aton_ip('1.1.1.2'))])
-        # dp.create_module('Update',
-        #                  name='gru2',
-        #                  arg=[set_val(ETH_DST, 'fa:16:3e:cf:f2:56')])
-        
-        
-        # dp.connect_modules('t1'  , 't5' , 0, 0)
-        # dp.connect_modules('t1'  , 't4' , 1, 0)
-        # dp.connect_modules('t1'  , 't2' , 2, 0)
-        # dp.connect_modules('t1'  , 't3' , 3, 0)
-        # dp.connect_modules('t1'  , 'DROP'     , 4, 0)
-
-        # dp.connect_modules('t2'  , 'grp', 1, 0)
-        # dp.connect_modules('t2'  , 't4' , 2, 0)
-        # dp.connect_modules('t2'  , 'DROP'     , 3, 0)
-        # dp.connect_modules('t2'  , 'OUT2'     , 0, 0)
-
-        # dp.connect_modules('t3'  , 'grp', 1, 0)
-        # dp.connect_modules('t3'  , 'DROP'     , 0, 0)
-
-        # dp.connect_modules('t4'  , 't4u1'     , 1, 0)
-        # dp.connect_modules('t4u1'      , 'OUT4'     , 0, 0)
-        # dp.connect_modules('t4'  , 't4u2'     , 2, 0)
-        # dp.connect_modules('t4u2'      , 't4s2'     , 0, 0)
-        # dp.connect_modules('t4s2'      , 'OUT_VXLAN', 0, 0)
-        # dp.connect_modules('t4'  , 't4u3'     , 3, 0)
-        # dp.connect_modules('t4u3'      , 't4s3'     , 0, 0)
-        # dp.connect_modules('t4s3'      , 'OUT_VXLAN', 0, 0)
-        # dp.connect_modules('t4'  , 't4u4'     , 4, 0)
-        # dp.connect_modules('t4u4'      , 'OUT3'     , 0, 0)
-
-        # dp.connect_modules('t5'  , 'OUT3'     , 1, 0)
-        # dp.connect_modules('t5'  , 'OUT4'     , 2, 0)
-        # dp.connect_modules('t5'  , 'DROP'     , 0, 0)
-
-        # dp.connect_modules('t6'  , 'CTL'      , 1, 0)
-        # dp.connect_modules('t6'  , 'vlan_pop' , 2, 0)
-        # dp.connect_modules('vlan_pop'  , 'OUT2'     , 0, 0)
-        # dp.connect_modules('t6'  , 'DROP'     , 0, 0)
-
-        # dp.connect_modules('grp' , 'gru1'     , 0, 0)
-        # dp.connect_modules('gru1'      , 'grs1'     , 0, 0)
-        # dp.connect_modules('grs1'      , 'OUT_VXLAN', 0, 0)
-        # dp.connect_modules('grp' , 'gru2'     , 1, 0)
-        # dp.connect_modules('gru2'      , 'OUT4'     , 0, 0)
-
-        
     finally:
         dp.resume_all()
 
@@ -898,6 +802,13 @@ if __name__ == "__main__":
         print 'Failed to create PMD port. Check if it exists already'
 
     print 'Initial list of Openflow ports', of_ports
+
+
+    if init_lcl_port(dp, LCL_NAME, 0)['name'] == LCL_NAME:
+        print "Successfully created VPort port : %s" % LCL_NAME
+    else:
+        print 'Failed to create VPort port.'
+
 
     for port_num, port in of_ports.iteritems():
         ret, sock = init_pktinout_port(dp, port.name)
