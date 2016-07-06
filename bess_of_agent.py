@@ -58,6 +58,9 @@ UDP_DST   ={'offset' : 36,  #16
             'size'   :  2}
 ARP_TPA ={'offset' : 24,
           'size'   :  4}  #23
+TUNNEL_ID={'name'   : 'tun_id',      #38
+           'size'   :  4}
+
 
 FIELD = {
     0: IN_PORT,
@@ -70,16 +73,14 @@ FIELD = {
     12: IPV4_DST,
     15: UDP_SRC,
     16: UDP_DST,
-    23: ARP_TPA
+    23: ARP_TPA,
+    38: TUNNEL_ID
 }
 
-
-TUNID  ={'name'   : 'tun_id',
-         'size'   :  4}
-TUNSRC ={'name'   : 'tun_ip_src',
-         'size'   :  4}
-TUNDST ={'name'   : 'tun_ip_dst',
-         'size'   :  4} 
+TUNSRC   ={'name'   : 'tun_ip_src',
+           'size'   :  4}
+TUNDST   ={'name'   : 'tun_ip_dst',
+           'size'   :  4} 
 
 WILDCARD_MATCH='WildcardMatch'
 EXACT_MATCH='ExactMatch'
@@ -95,12 +96,12 @@ TABLE_TYPE = {
 }
 
 TABLE_FIELDS = {
-    0 : [IN_PORT, ETH_TYPE, VLAN_VID, IP_PROTO, IPV4_DST, UDP_SRC, UDP_DST, ARP_TPA],
-    1 : [IN_PORT,IPV4_SRC],
-    2 : [IPV4_SRC,IPV4_DST],
+    0 : [IN_PORT,ETH_TYPE,VLAN_VID,IP_PROTO,IPV4_DST,UDP_SRC,UDP_DST,ARP_TPA],
+    1 : [ETH_TYPE,IN_PORT,IPV4_SRC],
+    2 : [ETH_TYPE,IPV4_SRC,IPV4_DST],
     3 : [IN_PORT],
-    4 : [IPV4_DST],
-    5 : [TUNID,ETH_SRC],
+    4 : [ETH_TYPE,IPV4_DST],
+    5 : [ETH_DST,ETH_SRC,TUNNEL_ID],
     6 : [ETH_TYPE, VLAN_VID]
 }
 
