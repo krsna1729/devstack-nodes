@@ -535,7 +535,29 @@ def handle_flow_mod(table_id,priority,match,instr):
         print err
     finally:
         dp.resume_all()
-                    
+
+
+def case_flow_mod(msg):
+    print "========================"
+    if msg.cookie in flows:
+        print "I already have this FlowMod: Cookie", msg.cookie
+    print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+
+    print "------------------------"
+    print "OFPT_FLOW_MOD"
+    print "table_id:\t", msg.table_id
+    print "priority:\t", msg.priority
+    match = oxm.parse_list(msg.match.oxm_fields)
+    print "match", 
+    print match
+    if len(msg.instructions) != 1:
+        print len(msg.instructions), ' INSTRUCTIONS: NOT HANDLED'
+        return
+    i = msg.instructions[0]
+    print "instr", i
+    handle_flow_mod(msg.table_id, msg.priority, match, i)
+    flows[msg.cookie] = msg
+
 
 
 def switch_proc(message, ofchannel):
@@ -554,25 +576,7 @@ def switch_proc(message, ofchannel):
         channel.send(b.ofp_role_request(b.ofp_header(4, OFPT_ROLE_REPLY, 0, msg.header.xid), msg.role, msg.generation_id))
 
     elif msg.header.type == OFPT_FLOW_MOD:
-        print "========================"
-        if msg.cookie in flows:
-            print "I already have this FlowMod: Cookie", msg.cookie
-        print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
-
-        print "------------------------"
-        print "OFPT_FLOW_MOD"
-        print "table_id:\t", msg.table_id
-        print "priority:\t", msg.priority
-        match = oxm.parse_list(msg.match.oxm_fields)
-        print "match", 
-        print match
-        if len(msg.instructions) != 1:
-            print len(msg.instructions), ' INSTRUCTIONS: NOT HANDLED'
-            return
-        i = msg.instructions[0]
-        print "instr", i
-        handle_flow_mod(msg.table_id, msg.priority, match, i)
-        flows[msg.cookie] = msg
+        case_flow_mod(msg)
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
         if msg.type == OFPMP_FLOW:
