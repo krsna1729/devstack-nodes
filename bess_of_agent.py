@@ -774,6 +774,27 @@ def init_modules(dp):
         dp.resume_all()
 
 
+
+def trace_test(trace,dbg):
+    pkts = rdpcap(trace)
+    num_pkts = int(os.environ.get('PKTS', len(pkts)))
+    print 'Replaying ', num_pkts, 'packets'
+    for i in range(num_pkts):
+        if pkts[i]['IP'].dst == '192.168.50.21':
+            of_msgs = pkts[i].getlayer(Raw).load
+            if dbg: print 'PktNo.', i, binascii.hexlify(of_msgs)
+            of_len = 0
+            of_len_end = 0
+            while len(pkts[i]['Raw']) > of_len:
+                of_len_end += unpack_from("!H", of_msgs, 2+of_len)[0]
+                if dbg: print '\tOF-Payload range:', of_len, of_len_end, binascii.hexlify(of_msgs)[of_len*2:of_len_end*2]
+                msg = p.parse(of_msgs, of_len)
+                if msg.header.type == OFPT_FLOW_MOD:
+                    if dbg: print '\tTwink Parse out :', msg
+                    case_flow_mod(msg)
+                of_len = of_len_end
+   
+        
         
 if __name__ == "__main__":
     while dp is None:
