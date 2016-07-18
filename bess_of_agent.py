@@ -324,9 +324,7 @@ def handle_flow_mod(table_id,priority,match,instr):
         finally:
             dp.resume_all()
 
-            
-    ### CODE BELOW UNTESTED ON GRP TABLE
-            
+                        
     new_connection = False
     table_name = 't'+str(table_id)
     print '~~~~~~~~~~~~~~~~~~~'
@@ -397,6 +395,25 @@ def handle_flow_mod(table_id,priority,match,instr):
                 if new_connection:
                     connect_modules(predecessor,goto_str,ogate)
 
+            elif action.type == OFPAT_GROUP:
+                goto_str = 'GRP_' + str(action.group_id)
+                
+                # DETERMINE OUTPUT GATE
+                print '\tto_port : ',goto_str
+                if initial_action:
+                    if not goto_str in ogate_map:
+                        ogate_map[goto_str] = len(ogate_map)
+                        new_connection = True
+                    ogate = ogate_map[goto_str]
+                else:
+                    new_connection = True
+                    ogate = 0
+                print '\tgate     : ', ogate
+
+                # CREATE CONNECTION, IF NECESSARY
+                if new_connection:
+                    connect_modules(predecessor,goto_str,ogate)
+                    
             elif action.type == OFPAT_POP_VLAN:
                 # WE WILL RUN THE LOOP ONCE FOR EACH UNIQUE INSTRS STRING
                 k = str(instr.actions)
@@ -675,7 +692,9 @@ def init_modules(dp):
                                   'size' : 4096})
 
         ### Group Table ###
-            
+        dp.create_module('HashLB',
+                         name='GRP_2953848289',
+                         arg=2)
             
         ### Incoming Static Pipeline ###
         dp.create_module('BPF'          ,name='is_vxlan')
