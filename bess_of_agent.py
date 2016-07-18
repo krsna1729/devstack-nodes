@@ -338,9 +338,19 @@ def handle_flow_mod(table_id,priority,match,instr):
     if TABLE_TYPE[table_id] == WILDCARD_MATCH:
         print '\tmasks    : ',masks
 
+    if instr is None:
+        goto_str = 'DROP'
+        print '\tto_table : ',goto_str
+        if not goto_str in ogate_map:
+            ogate_map[goto_str] = len(ogate_map)
+            new_connection = True
+        ogate = ogate_map[goto_str]
+        print '\tgate     : ', ogate
+        if new_connection:
+            connect_modules(table_name,goto_str,ogate)
 
     ### GOTO_TABLE
-    if instr.type == OFPIT_GOTO_TABLE:
+    elif instr.type == OFPIT_GOTO_TABLE:
         goto_str = 't'+str(instr.table_id)
         print '\tto_table : ',goto_str
         if not goto_str in ogate_map:
@@ -454,11 +464,14 @@ def case_flow_mod(msg):
     match = oxm.parse_list(msg.match.oxm_fields)
     print "match", 
     print match
-    if len(msg.instructions) != 1:
+    if len(msg.instructions) > 1:
         print len(msg.instructions), ' INSTRUCTIONS: NOT HANDLED'
         return
-    i = msg.instructions[0]
-    print "instr", i
+    if len(msg.instructions) == 1:
+        i = msg.instructions[0]
+        print "instr", i
+    else:
+        i = None
     handle_flow_mod(msg.table_id, msg.priority, match, i)
     flows[msg.cookie] = msg
 
@@ -650,9 +663,9 @@ def init_modules(dp):
     global TABLE_FIELDS
     dp.pause_all()
     try:
-        ### PLACEHOLDER ###
-        dp.create_module('Sink', name='CTL', arg=None)
-
+        
+        ### DROP
+        dp.create_module('Sink', name='DROP')
         
         ### Tables 0-6 ###
         for i in range(0,7):
