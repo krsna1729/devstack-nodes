@@ -375,6 +375,8 @@ def handle_flow_mod(table_id,priority,match,instr):
                     goto_str = 'OUT_LCL'
                 elif action.port == 2:
                     goto_str = 'OUT_PHY'
+                elif action.port < 5:
+                    goto_str = 'OUT_' + str(action.port)
                 else:
                     print 'UNHANDLED PORT # ', action.port
                     return
@@ -680,6 +682,9 @@ def init_modules(dp):
     global TABLE_FIELDS
     dp.pause_all()
     try:
+        ### PLACEHOLDERS
+        dp.create_module('Sink', name='OUT_3')
+        dp.create_module('Sink', name='OUT_4')
         
         ### DROP
         dp.create_module('Sink', name='DROP')
