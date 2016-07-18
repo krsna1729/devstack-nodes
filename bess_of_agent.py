@@ -416,6 +416,7 @@ def handle_flow_mod(table_id,priority,match,instr):
         print 'UNHANDLED INSTRUCTION TYPE'
         return
 
+    ### UPDATE TABLE ENTRIES
     try:
         dp.pause_all()
         if TABLE_TYPE[table_id] == WILDCARD_MATCH:
@@ -425,14 +426,13 @@ def handle_flow_mod(table_id,priority,match,instr):
                                    'masks'   : masks,
                                    'gate'    : ogate    })
             print 'update SUCCESS'
-        elif TABLE_TYPE(table_id) == EXACT_MATCH:
-            ### UNTESTED !!!
+        elif TABLE_TYPE[table_id] == EXACT_MATCH:
             dp.run_module_command(table_name, 'add',
                                   {'fields'  : values,
                                    'gate'    : ogate    })
             print 'update SUCCESS'
         else:
-            print 'UNHANDLED TABLE TYPE ', TABLE_TYPE(table_id)
+            print 'UNHANDLED TABLE TYPE ', TABLE_TYPE[table_id]
 
     except Exception, err:
         print 'update FAIL'
