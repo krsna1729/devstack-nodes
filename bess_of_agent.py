@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from struct import *
+from scapy.all import *
 import twink
 from twink.ofp4 import *
 import twink.ofp4.build as b
@@ -12,7 +13,6 @@ import logging
 import zerorpc
 import signal
 import socket
-import select
 import errno
 import time
 import sys
@@ -21,8 +21,6 @@ import os.path
 import cStringIO
 import pprint
 from collections import namedtuple
-#TODO: Remove this along with the hack of iterating to find the rule causing PACKET_IN
-from scapy.all import *
 logging.basicConfig(level=logging.ERROR)
 
 def aton_ip(ip):
@@ -105,33 +103,19 @@ TABLE_FIELDS = {
     6 : [ETH_TYPE, VLAN_VID]
 }
 
-
-
-
-
-_EPOLL_BLOCK_DURATION_S = 1
 PKT_IN_BYTES = 4096
 PHY_NAME = "eth2"
 LCL_NAME = "br-int"
+CTL_NAME = "ctl"
+SOCKET_PATH = '/tmp/bess/unix_' + CTL_NAME
 dpid = 0xffff
 n_tables = 254
 
 dp = None
 flows = {}
+groups = {}
+group_stats = {}
 channel = 0
-
-epl = 'epoll'
-
-_CONNECTIONS = {}
-
-_EVENT_LOOKUP = {
-    select.POLLIN: 'POLLIN',
-    select.POLLPRI: 'POLLPRI',
-    select.POLLOUT: 'POLLOUT',
-    select.POLLERR: 'POLLERR',
-    select.POLLHUP: 'POLLHUP',
-    select.POLLNVAL: 'POLLNVAL',
-}
 
 ofp_port_stats_names = '''port_no rx_packets tx_packets rx_bytes tx_bytes rx_dropped tx_dropped,
                           rx_errors tx_errors rx_frame_err rx_over_err rx_crc_err
@@ -156,14 +140,14 @@ default_port = of_port('<port no>', '<mac address>', '<port name>', 0, 0,
                        0x802, 0, 0, 0, 0, 0,
                        None, default_port_stats)
 of_ports = {
-    OFPP_LOCAL: default_port._replace(port_no=OFPP_LOCAL, hw_addr=binascii.a2b_hex("0000deadbeef"), name='br-int', curr=0,
-                                      stats=default_port_stats._replace(port_no=OFPP_LOCAL)),
-    1: default_port._replace(port_no=1, hw_addr=binascii.a2b_hex("0000deaddead"), name='vxlan', curr=0,
-                             stats=default_port_stats._replace(port_no=1)),
-    2: default_port._replace(port_no=2, hw_addr=binascii.a2b_hex("000000000001"), name=PHY_NAME, curr=0,
-                             stats=default_port_stats._replace(port_no=2)),
+    OFPP_LOCAL:
+        default_port._replace(port_no=OFPP_LOCAL, hw_addr=binascii.a2b_hex("0000deadbeef"), name='br-int', curr=0,
+                              stats=default_port_stats._replace(port_no=OFPP_LOCAL)),
+    1:  default_port._replace(port_no=1, hw_addr=binascii.a2b_hex("0000deaddead"), name='vxlan', curr=0,
+                              stats=default_port_stats._replace(port_no=1)),
+    2:  default_port._replace(port_no=2, hw_addr=binascii.a2b_hex("000000000001"), name=PHY_NAME, curr=0,
+                              stats=default_port_stats._replace(port_no=2)),
 }
-
 
 try:
     BESS_PATH = os.getenv('BESSDK', '/opt/bess')
@@ -174,80 +158,32 @@ except ImportError as e:
     sys.exit()
 
 
-def _get_flag_names(flags):
-    names = []
-    for bit, name in _EVENT_LOOKUP.items():
-        if flags & bit:
-            names.append(name)
-            flags -= bit
+def run_pktin_recv():
 
-            if flags == 0:
-                break
-
-    assert flags == 0,\
-        "We couldn't account for all flags: (%d)" % (flags,)
-
-    return names
-
-
-def _handle_inotify_event(fd, event_type):
-    # Common, but we're not interested.
-    if (event_type & select.POLLOUT) == 0:
-        flag_list = _get_flag_names(event_type)
-        print flag_list
-
-    try:
-        s = _CONNECTIONS[fd]
-    except KeyError as e:
-        print >> sys.stderr, 'KeyError in epoll. Race-condition?', e.message
-        return
-    if event_type & select.EPOLLIN:
-        data = s.recv(PKT_IN_BYTES)
-        # TODO: Formalise this. Assumption - DP to prepend cookie before sending PACKET_IN. Reason also? For now ACTION
-        # cookie = unpack('Q', data[:8])[0]
-        cookie = None
-        #print 'Received data: ', data, 'bytearray: ', binascii.hexlify(bytearray(data))
-        if len(data) < 14:
-            return
-        eth = Ether(bytearray(data))
-        #eth.show()
-        if Ether not in eth:
-#            print 'Got a PKT_IN that is not Ethernet 2'
-            return
-        eth_type = eth['Ethernet'].type
-        for c, f in flows.iteritems():
-            oxm_list = oxm.parse_list(f.match.oxm_fields)
-            for i in oxm_list:
-                if i.oxm_value == eth_type:
-                    cookie = c
-                    break
-            if cookie is not None:
-                break
-
-#        print 'PACKET_IN Cookie:', cookie
-        if cookie is None:
-            return
-        #print flows[cookie]
-        f = flows[cookie]
-        port = 0xffffffff
-        for p, stuff in of_ports.iteritems():
-            if stuff.pkt_inout_socket == s:
-                    port = p
-                    print 'Found matching port for PKT_IN: ', port
-        match = b.ofp_match(None, None, oxm.build(None, oxm.OXM_OF_IN_PORT, False, None, 2))
-        # Get cookie from DP. Use it to lookup table_id, match. Append Data
-        '''channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
-                     0xffffffff, len(data[8:]), OFPR_ACTION, f.table_id, cookie, f.match, data[8:]))'''
-        channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
-                                     0xffffffff, len(data), OFPR_ACTION, f.table_id, cookie, match, data))
-
-
-def run_epoll():
-
+    s = of_ports[OFPP_LOCAL].pkt_inout_socket
     while True:
-        events = epl.poll(_EPOLL_BLOCK_DURATION_S)
-        for fd, event_type in events:
-            _handle_inotify_event(fd, event_type)
+        try:
+            data = s.recv(PKT_IN_BYTES)
+            if len(data) == 0:
+                continue
+            print len(data), type(data), data
+            # TODO: Formalise this. DP to prepend cookie before sending PACKET_IN. Reason also? For now ACTION
+            # Format is cookie(8)(Q)+inport(4)(I)
+            fmt = "!QI"
+            split = calcsize(fmt)
+            (cookie, inport) = unpack(fmt, data)
+
+            f = flows[cookie]
+            match = b.ofp_match(None, None, oxm.build(None, oxm.OXM_OF_IN_PORT, False, None, inport))
+            channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
+                                         0xffffffff, len(data[split:]), OFPR_ACTION, f.table_id, cookie, match, data[split:]))
+        except Exception as e:
+            print(e)
+            break 
+ 
+    # s.close()
+    print 'Exiting thread run_pktin_recv'
+    return
 
 
 def connect_bess():
@@ -266,6 +202,8 @@ def init_phy_port(dp, name, port_id):
     dp.pause_all()
     try:
         result = dp.create_port('PMD', name, {'port_id': port_id})
+        dp.create_module('PortInc', 'INC_PHY'    , {'port': name})
+        dp.create_module('PortOut', 'OUT_PHY'    , {'port': name})
         dp.resume_all()
     except (dp.APIError, dp.Error)as err:
         print err.message
@@ -287,72 +225,38 @@ def init_lcl_port(dp, name, port_id):
     else:
         return result
 
-
-
     
-PKTINOUT_NAME = 'pktinout_%s'
-SOCKET_PATH = '/tmp/bess/unix_' + PKTINOUT_NAME
-
-
-def init_pktinout_port(dp, name):
-
-    # br-int alone or vxlan too?
-    if name == 'br-int':
-        return None, None
+def init_pktinout_port(dp):
 
     try:
         dp.pause_all()
-        result = dp.create_port('UnixSocket', PKTINOUT_NAME % name, {'path': '@' + SOCKET_PATH % name})
+        result = dp.create_port('UnixSocket', CTL_NAME, {'path': '@' + SOCKET_PATH})
         s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        s.connect('\0' + SOCKET_PATH % name)
-        s.setblocking(0)
-        epl.register(s.fileno())
-        _CONNECTIONS[s.fileno()] = s
+        s.connect('\0' + SOCKET_PATH)
     except (dp.APIError, dp.Error, socket.error) as err:
         print err
         dp.resume_all()
         return {'name': None}, None
     else:
-        # TODO: Handle VxLAN PacketOut if Correct/&Reqd. Create PI connect PI_pktinout_vxlan-->Encap()-->PO_dpif
-        if name == 'vxlan':
-            pass
-        elif name == 'eth2':
-            # dp.create_module('PortInc', 'CTL_INC_PHY', {'port': PKTINOUT_NAME % name})
-            # dp.create_module('PortOut', 'CTL_0UT2', {'port': PKTINOUT_NAME % name})
-            dp.create_module('PortInc', 'INC_PHY'    , {'port': name})
-            dp.create_module('PortOut', 'OUT_PHY'    , {'port': name})
-        else:
-            # UNIX_port [PACKET_OUT]--> DP port
-            dp.create_module('PortInc', 'PI_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
-            dp.create_module('PortOut', 'PO_' + name, {'port': name})
-            dp.connect_modules('PI_' + PKTINOUT_NAME % name, 'PO_' + name)
+        dp.create_module('PortInc', 'INC_CTL', {'port': CTL_NAME})
+        dp.create_module('PortOut', 'OUT_CTL', {'port': CTL_NAME})
+        print 'Created INC_CTL and OUT_CTL'
 
-            dp.create_module('PortOut', 'PO_' + PKTINOUT_NAME % name, {'port': PKTINOUT_NAME % name})
-            dp.create_module('PortInc', 'PI_' + name, {'port': name})
-            # TODO: Below connection is temporary. Bypass flow processing.
-            # DP port --> [PACKET_IN] UNIX_port
-            dp.connect_modules('PI_' + name, 'PO_' + PKTINOUT_NAME % name)
         dp.resume_all()
         return result, s
 
 
-def deinit_pktinout_port(dp, name):
-
-    # br-int alone or vxlan too?
-    if name == 'br-int':
-        return
+def deinit_pktinout_port(dp, s):
 
     try:
+        s.close()
         dp.pause_all()
-        # TODO: Handle VxLAN PacketOut if Correct/&Reqd. Create PI connect PI_pktinout_vxlan-->Encap()-->PO_dpif
-        if name != 'vxlan':
-            dp.disconnect_modules('PI_' + PKTINOUT_NAME % name, 0)
-            dp.destroy_module('PI_' + PKTINOUT_NAME % name)
-            dp.destroy_module('PO_' + name)
-            dp.destroy_port(PKTINOUT_NAME % name)
+        dp.destroy_module('INC_CTL')
+        dp.destroy_module('OUT_CTL')
+        dp.destroy_port(CTL_NAME)
         dp.resume_all()
         return
-    except (dp.APIError, dp.Error)as err:
+    except (dp.APIError, dp.Error) as err:
         dp.resume_all()
         print err.message
 
@@ -559,7 +463,6 @@ def case_flow_mod(msg):
     flows[msg.cookie] = msg
 
 
-
 def switch_proc(message, ofchannel):
     
     msg = p.parse(message)
@@ -577,14 +480,33 @@ def switch_proc(message, ofchannel):
 
     elif msg.header.type == OFPT_FLOW_MOD:
         case_flow_mod(msg)
+    elif msg.header.type == OFPT_GROUP_MOD:
+        if msg.group_id in groups:
+            print "I already have this GroupMod: ID ", msg.group_id
+        print msg.group_id, msg.type, msg.buckets
+        groups[msg.group_id] = msg
+        # Initializing list of bucket stats with 0s
+        group_stats[msg.group_id] = [0]*len(msg.buckets)
 
     elif msg.header.type == OFPT_MULTIPART_REQUEST:
+        # TODO: Collect real FLOW stats and report them. Create a named tuple
         if msg.type == OFPMP_FLOW:
             channel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
                          msg.type, 0, ["".join(b.ofp_flow_stats(None, f.table_id, 1, 2, f.priority,
                                                                 f.idle_timeout, f.hard_timeout, f.flags, f.cookie, 0, 0,
                                                                 f.match, f.instructions)
                                                for f in flows.itervalues())]))
+        # TODO: Collect real GROUP stats and report them. Create a named tuple
+        elif msg.type == OFPMP_GROUP:
+            ofchannel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
+                         msg.type, 0, ["".join(b.ofp_group_stats(None, gid, 0, 0, 0,
+                                                                 1, 2, group_stats[gid])
+                                               for gid in groups.iterkeys())]))
+        elif msg.type == OFPMP_GROUP_DESC:
+            ofchannel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
+                         msg.type, 0, ["".join(b.ofp_group_desc(None, g.type, g.group_id, g.buckets)
+                                               for g in groups.itervalues())]))
+        # TODO: Collect real PORT stats and report them. We have a namedtuple
         elif msg.type == OFPMP_PORT_STATS:
             channel.send(b.ofp_multipart_reply(b.ofp_header(4, OFPT_MULTIPART_REPLY, 0, msg.header.xid),
                          msg.type, 0, ["".join(b.ofp_port_stats(ofp.stats.port_no, ofp.stats.rx_packets, ofp.stats.tx_packets, ofp.stats.rx_bytes, ofp.stats.tx_bytes, ofp.stats.rx_dropped, ofp.stats.tx_dropped,
@@ -605,18 +527,19 @@ def switch_proc(message, ofchannel):
 #            print 'Unhandled message OFPT_MULTIPART_REQUEST type:\n', msg
 
     elif msg.header.type == OFPT_PACKET_OUT:
-        index = msg.actions[0].port
-        sock = of_ports[index].pkt_inout_socket
+
+        fmt = "!I"
+        sock = of_ports[OFPP_LOCAL].pkt_inout_socket
         if sock is not None:
             try:
-                sent = sock.send(msg.data)
+                sent = sock.send(pack(fmt, msg.actions[0].port)+msg.data)
             except socket.error as e:
                 print >> sys.stderr, e.message
             else:
-                if sent != len(msg.data):
-                    print "Incomplete Transmission Sent:%d, Len:%d" % (sent, len(msg.data))
+                if sent != calcsize(fmt)+len(msg.data):
+                    print "Incomplete Transmission Sent:%d, Len:%d" % (sent, calcsize(fmt)+len(msg.data))
         else:
-            print "Packet out OF Port %d, Len:%d. Failed - Null socket" % (index, len(msg.data))
+            print "Packet out OF Port %d, Len:%d. Failed - Null socket" % (msg.actions[0].port, len(msg.data))
 
     elif msg.header.type == OFPT_HELLO:
         pass
@@ -675,13 +598,13 @@ class PortManager(object):
             raise ValueError("mac cannot be None")
 
         self.of_port_num += 1
-        mac = mac.replace(":","")
+        mac = mac.replace(":", "")
         # Create vhost-user port
         ret = dp.create_port('vhost_user', dev, {'mac': mac})
-        # Create corresponding pkt_in_out port
-        ret, sock = init_pktinout_port(dp, dev)
+
+
         of_ports[self.of_port_num] = default_port._replace(
-            port_no=self.of_port_num, hw_addr=binascii.a2b_hex(mac[:12]), name=dev, pkt_inout_socket=sock,
+            port_no=self.of_port_num, hw_addr=binascii.a2b_hex(mac[:12]), name=dev,
             stats=default_port_stats._replace(port_no=self.of_port_num))
 
         ofp = of_ports[self.of_port_num]
@@ -705,7 +628,7 @@ class PortManager(object):
                                                           ofp.curr, ofp.advertised, ofp.supported, ofp.peer,
                                                           ofp.curr_speed, ofp.max_speed
                                                           )))
-                deinit_pktinout_port(dp, port_details.name)
+
                 dp.destroy_port(dev)
                 del of_ports[port_no]
                 print 'Current OF ports:\n', of_ports
@@ -719,16 +642,8 @@ def nova_agent_start():
     s.bind("tcp://0.0.0.0:10515")
     print "Port Manager listening on 10515"
 
-    #blocks?
+    # blocks?
     s.run()
-
-
-def print_stupid():
-    while 1:
-        channel.send(ofp_header_only(2, version=4))
-        time.sleep(2)
-    pass
-
 
     
 def init_modules(dp):
@@ -751,7 +666,7 @@ def init_modules(dp):
             
         ### Incoming Static Pipeline ###
         dp.create_module('BPF'          ,name='is_vxlan')
-        dp.create_module('VXLANDecap'   , name='IN_VXLAN')
+        dp.create_module('VXLANDecap'   ,name='IN_VXLAN')
         dp.connect_modules('INC_PHY'    ,'is_vxlan'    , 0, 0)
         dp.connect_modules('is_vxlan'   ,'t0'          , 0, 0)
         dp.run_module_command('is_vxlan',
@@ -760,7 +675,9 @@ def init_modules(dp):
                                     'gate':1}])
         dp.connect_modules('is_vxlan'   ,'IN_VXLAN'    , 1, 0)
         dp.connect_modules('IN_VXLAN'   ,'t0'          , 0, 0)
-                                                      
+        dp.connect_modules('INC_CTL'    ,'t0'          , 0, 0)
+        dp.connect_modules('INC_LCL'    ,'t0'          , 0, 0)
+        
 
         ### Outgoing Static Pipeline ###
         dp.create_module('VXLANEncap'   , name='OUT_VXLAN')
@@ -772,7 +689,6 @@ def init_modules(dp):
             
     finally:
         dp.resume_all()
-
 
 
 def trace_test(trace,dbg):
@@ -792,23 +708,20 @@ def trace_test(trace,dbg):
                 if msg.header.type == OFPT_FLOW_MOD:
                     if dbg: print '\tTwink Parse out :', msg
                     case_flow_mod(msg)
-                of_len = of_len_end
-   
+                of_len = of_len_end   
         
         
 if __name__ == "__main__":
+
     while dp is None:
         dp = connect_bess()
         time.sleep(2)
     dp.resume_all()
-    epl = select.epoll()
+
 
     def cleanup(*args):
         dp.pause_all()
-        for sfd, s in _CONNECTIONS.iteritems():
-            epl.unregister(sfd)
-            s.close()
-        epl.close()
+        deinit_pktinout_port(dp, of_ports[OFPP_LOCAL].pkt_inout_socket)
         dp.reset_all()
         sys.exit()
 
@@ -818,9 +731,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dpid', default=1, type=int, help='Datapath ID default=1')
     parser.add_argument('-c', '--ctl', default=None, help='Controller IP. default=None')
+    parser.add_argument('-i', '--phy', default="eth2", help='Interface name. default=eth2')
     args = parser.parse_args()
 
     dpid = args.dpid
+    PHY_NAME = args.phy
 
     if init_phy_port(dp, PHY_NAME, 0)['name'] == PHY_NAME:
         print "Successfully created PMD port : %s" % PHY_NAME
@@ -829,17 +744,14 @@ if __name__ == "__main__":
 
     print 'Initial list of Openflow ports', of_ports
 
+    ret, sock = init_pktinout_port(dp)
+    of_ports[OFPP_LOCAL] = of_ports[OFPP_LOCAL]._replace(pkt_inout_socket=sock)
+    print ret, ' ', of_ports[OFPP_LOCAL].pkt_inout_socket
 
     if init_lcl_port(dp, LCL_NAME, 0)['name'] == LCL_NAME:
         print "Successfully created VPort port : %s" % LCL_NAME
     else:
         print 'Failed to create VPort port.'
-
-
-    for port_num, port in of_ports.iteritems():
-        ret, sock = init_pktinout_port(dp, port.name)
-        of_ports[port_num] = of_ports[port_num]._replace(pkt_inout_socket=sock)
-        print ret, ' ', of_ports[port_num].pkt_inout_socket
 
     init_modules(dp)
         
@@ -847,11 +759,10 @@ if __name__ == "__main__":
         pass
         
     # TODO: Start a thread that will select poll on all of those UNIX sockets
-    t2 = threading.Thread(name="PACKET_IN thread", target=run_epoll)
+    t2 = threading.Thread(name="PACKET_IN thread", target=run_pktin_recv)
     t2.setDaemon(True)
     t2.start()
 
     nova_agent_start()
 
     signal.pause()
-
