@@ -302,6 +302,28 @@ def table_match(tid, match):
     return (value,mask)
 
 
+
+def connect_modules(from_table,to_table, ogate):
+    global dp
+    print 'CONNECTING: ', from_table, ':', ogate, ' --> ', to_table
+    dp.pause_all()
+    try:
+        dp.connect_modules(from_table, to_table, ogate, 0)
+    except Exception, err:
+        print 'PROBLEM CONNECTING MODULES'
+        print err
+    finally:
+        dp.resume_all()
+
+
+def handle_group_mod(group_id,command,command_type,buckets):
+    i = 0
+    for b in buckets:
+        print 'bucket ', i
+        for a in b.actions:
+            print a
+        i=i+1
+    
 # ASSUMING 8 TABLES
 OGATE_MAPS = [dict() for i in range(0,8)]
 def handle_flow_mod(table_id,priority,match,instr):
@@ -312,18 +334,6 @@ def handle_flow_mod(table_id,priority,match,instr):
         print "value\t", f.oxm_value
         if f.oxm_hasmask:
             print "mask\t", f.oxm_mask
-
-    def connect_modules(from_table,to_table, ogate):
-        print 'CONNECTING: ', from_table, ':', ogate, ' --> ', to_table
-        dp.pause_all()
-        try:
-            dp.connect_modules(from_table, to_table, ogate, 0)
-        except Exception, err:
-            print 'PROBLEM CONNECTING MODULES'
-            print err
-        finally:
-            dp.resume_all()
-
                         
     new_connection = False
     table_name = 't'+str(table_id)
@@ -469,6 +479,31 @@ def handle_flow_mod(table_id,priority,match,instr):
     finally:
         dp.resume_all()
 
+def case_group_mod(msg):
+    print "~~~~~~~~~~~~~~~~~~~~~~~"
+    if msg.group_id in groups:
+        print "I already have this GroupMod: ID ", msg.group_id
+    print msg
+    print "------------------------"
+    print "GROUP:",
+    print msg.group_id
+    if msg.command == OFPGC_ADD:
+        print "ADD"
+    else:
+        print "UNHANDLED COMMAND ", msg.command
+        return
+    if msg.type == OFPGT_SELECT:
+        print "SELECT"
+    else:
+        print "UNHANDLED TYPE ", msg.type
+        return
+    for b in msg.buckets:
+        print "bucket: ",
+        print b
+    print "!!!!!!!!!!!!!!!!!!!!!!!!"
+    handle_group_mod(msg.group_id,msg.command,msg.type,msg.buckets)
+    groups[msg.group_id] = msg
+    
 
 def case_flow_mod(msg):
     print "========================"
@@ -513,10 +548,7 @@ def switch_proc(message, ofchannel):
     elif msg.header.type == OFPT_FLOW_MOD:
         case_flow_mod(msg)
     elif msg.header.type == OFPT_GROUP_MOD:
-        if msg.group_id in groups:
-            print "I already have this GroupMod: ID ", msg.group_id
-        print msg.group_id, msg.type, msg.buckets
-        groups[msg.group_id] = msg
+        case_group_mod(msg)
         # Initializing list of bucket stats with 0s
         group_stats[msg.group_id] = [0]*len(msg.buckets)
 
@@ -745,6 +777,8 @@ def trace_test(trace,dbg):
                 if msg.header.type == OFPT_FLOW_MOD:
                     if dbg: print '\tTwink Parse out :', msg
                     case_flow_mod(msg)
+                elif msg.header.type == OFPT_GROUP_MOD:
+                    case_group_mod(msg)
                 of_len = of_len_end   
         
         
