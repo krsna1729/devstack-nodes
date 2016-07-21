@@ -385,11 +385,12 @@ def handle_flow_mod(table_id,priority,match,instr):
                     goto_str = 'OUT_LCL'
                 elif action.port == 2:
                     goto_str = 'OUT_PHY'
-                elif action.port < 5:
-                    goto_str = 'OUT_' + str(action.port)
                 else:
-                    print 'UNHANDLED PORT # ', action.port
-                    return
+                    if not action.port in of_ports:
+                        print 'ERROR: NONEXISTENT PORT'
+                        return
+                    
+                    goto_str = 'OUT_' + str(action.port)
 
                 # DETERMINE OUTPUT GATE
                 print '\tto_port : ',goto_str
