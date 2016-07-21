@@ -719,10 +719,6 @@ def init_modules(dp):
     global TABLE_FIELDS
     dp.pause_all()
     try:
-        ### PLACEHOLDERS
-        dp.create_module('Sink', name='OUT_3')
-        dp.create_module('Sink', name='OUT_4')
-        
         ### DROP
         dp.create_module('Sink', name='DROP')
         
@@ -766,6 +762,25 @@ def init_modules(dp):
 
 
 def trace_test(trace,dbg):
+
+    ### CREATE VM PORTS 3 & 4
+    for i in range(3,5):
+        pname = 'vport_' + str(i)
+        pmac  = '{0:012d}'.format(i)
+        print 'ADDING NEW PORT ', pname
+        print 'w/ mac', pmac
+        pm.add_port(pname,pmac)
+        dp.pause_all()
+        try:
+            dp.create_module('PortInc', 'INC_' + str(i), {'port': pname})
+            dp.create_module('PortOut', 'OUT_' + str(i), {'port': pname})
+        except Exception, err:
+            print 'PROBLEM CREATING PORT MODULES'
+            print err
+        finally:
+            dp.resume_all()
+
+
     pkts = rdpcap(trace)
     num_pkts = int(os.environ.get('PKTS', len(pkts)))
     print 'Replaying ', num_pkts, 'packets'
