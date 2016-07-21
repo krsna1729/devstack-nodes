@@ -115,7 +115,7 @@ dp = None
 flows = {}
 groups = {}
 group_stats = {}
-channel = 0
+channel = None
 
 ofp_port_stats_names = '''port_no rx_packets tx_packets rx_bytes tx_bytes rx_dropped tx_dropped,
                           rx_errors tx_errors rx_frame_err rx_over_err rx_crc_err
@@ -673,10 +673,12 @@ class PortManager(object):
             stats=default_port_stats._replace(port_no=self.of_port_num))
 
         ofp = of_ports[self.of_port_num]
-        channel.send(b.ofp_port_status(b.ofp_header(4, OFPT_PORT_STATUS, 0, 0), OFPPR_ADD,
-                                       b.ofp_port(ofp.port_no, ofp.hw_addr, ofp.name, ofp.config, ofp.state,
-                                                  ofp.curr, ofp.advertised, ofp.supported, ofp.peer, ofp.curr_speed, ofp.max_speed
-                                                  )))
+        
+        if channel:
+            channel.send(b.ofp_port_status(b.ofp_header(4, OFPT_PORT_STATUS, 0, 0), OFPPR_ADD,
+                                           b.ofp_port(ofp.port_no, ofp.hw_addr, ofp.name, ofp.config, ofp.state,
+                                                      ofp.curr, ofp.advertised, ofp.supported, ofp.peer, ofp.curr_speed, ofp.max_speed
+                                           )))
 
         print 'Current OF ports:\n', of_ports
         return "Successfully added dev: %s with MAC: %s as ofport:%d" % (dev, mac, self.of_port_num)
