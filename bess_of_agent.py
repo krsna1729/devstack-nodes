@@ -112,6 +112,7 @@ dpid = 0xffff
 n_tables = 254
 
 dp = None
+pm = None
 flows = {}
 groups = {}
 group_stats = {}
@@ -705,7 +706,8 @@ class PortManager(object):
 
 
 def nova_agent_start():
-    s = zerorpc.Server(PortManager())
+    global pm
+    s = zerorpc.Server(pm)
     s.bind("tcp://0.0.0.0:10515")
     print "Port Manager listening on 10515"
 
@@ -827,6 +829,8 @@ if __name__ == "__main__":
     else:
         print 'Failed to create VPort port.'
 
+    pm = PortManager()
+        
     init_modules(dp)
         
     while of_agent_start(ctl_ip=args.ctl) == errno.ECONNREFUSED:
