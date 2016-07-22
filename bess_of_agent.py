@@ -412,9 +412,10 @@ def handle_group_mod(group_id,command,command_type,buckets):
 
     i = 0
     for bkt in buckets:
-        print 'bucket ', i
-        for a in bkt.actions:
-            print a
+        print 'BUCKET ', i
+        ### NOTE: uncertain if using group_id in place of cookie is okay
+        ### perhaps we should just add cookie metadata to every packet?
+        apply_actions(group_id,bkt.actions,mod_name,i)
         i=i+1
 
         
