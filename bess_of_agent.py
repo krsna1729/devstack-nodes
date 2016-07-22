@@ -283,7 +283,7 @@ def create_new_vlan_pop():
         dp.create_module('VLANPop', name=name)
         VLAN_POP_NUM+=1
     except Exception, err:
-            print 'PROBLEM CREATING NEW VLAN_POP'
+            print 'ERROR: failed to create new VLANPop'
             print err
     finally:
         dp.resume_all()
@@ -321,15 +321,14 @@ def connect_modules(from_table,to_table, ogate):
     try:
         dp.connect_modules(from_table, to_table, ogate, 0)
     except Exception, err:
-        print 'PROBLEM CONNECTING MODULES'
+        print 'ERROR: failed to connect modules'
         print err
     finally:
         dp.resume_all()
 
     
-# ASSUMING 8 TABLES
 cookie_cntr=0
-def output_action(table_id,port,cookie,prev_module,next_gate):
+def output_action(cookie,port,prev_module,next_gate):
     global OGATE_MAPS
     global dp
     global cookie_cntr
@@ -347,7 +346,7 @@ def output_action(table_id,port,cookie,prev_module,next_gate):
                                   'value' : cookie,
                                   'size' : 8})
         except Exception, err:
-            print 'PROBLEM CONNECTING MODULES'
+            print 'ERROR: failed to setup metadata'
             print err
         finally:
             dp.resume_all()
@@ -359,6 +358,8 @@ def output_action(table_id,port,cookie,prev_module,next_gate):
         goto_str = 'OUT_CTL'
     elif port == OFPP_LOCAL:
         goto_str = 'OUT_LCL'
+    elif port == 1:
+        goto_str = 'OUT_VXLAN'
     elif port == 2:
         goto_str = 'OUT_PHY'
     else:
@@ -368,6 +369,39 @@ def output_action(table_id,port,cookie,prev_module,next_gate):
             return
 
     connect_modules(prev_module,goto_str,next_gate)
+
+
+def apply_actions(cookie,actions,prev_module,next_gate):
+
+    for action in actions:
+
+        if action.type == OFPAT_OUTPUT:
+            output_action(cookie,
+                          action.port,
+                          prev_module,
+                          next_gate)
+            # TERMINAL ACTION
+
+        elif action.type == OFPAT_GROUP:
+            goto_str = 'GRP_' + str(action.group_id)
+            print '\tto : ',goto_str
+            connect_modules(prev_module,goto_str,next_gate)
+            # TERMINAL ACTION
+
+        elif action.type == OFPAT_POP_VLAN:
+            goto_str = create_new_vlan_pop()
+            connect_modules(prev_module,goto_str,next_gate)
+            prev_module=goto_str
+            next_gate = 0
+
+        elif action.type == OFPAT_SET_FIELD:
+            print 'TBD: for now, skip'
+            
+        # UNHANDLED ACTION
+        else:
+            print 'ERROR: UNHANDLED ACTION'
+            return
+
 
 
 def handle_group_mod(group_id,command,command_type,buckets):
@@ -384,6 +418,7 @@ def handle_group_mod(group_id,command,command_type,buckets):
         i=i+1
 
         
+# ASSUMING 8 TABLES        
 OGATE_MAPS = [dict() for i in range(0,8)]
 def handle_flow_mod(cookie,table_id,priority,match,instr):
     global dp
@@ -426,36 +461,7 @@ def handle_flow_mod(cookie,table_id,priority,match,instr):
     ### APPLY_ACTIONS
     elif instr.type == OFPIT_APPLY_ACTIONS:
         print 'APPLY_ACTIONS'
-        prev_module = table_name
-        next_gate = ogate
-        
-        for action in instr.actions:
-
-            if action.type == OFPAT_OUTPUT:
-                output_action(table_id,
-                              action.port,
-                              cookie,
-                              prev_module,
-                              next_gate)
-                # TERMINAL ACTION
-
-            elif action.type == OFPAT_GROUP:
-                goto_str = 'GRP_' + str(action.group_id)
-                print '\tto : ',goto_str
-                connect_modules(prev_module,goto_str,next_gate)
-                # TERMINAL ACTION
-                    
-            elif action.type == OFPAT_POP_VLAN:
-                goto_str = create_new_vlan_pop()
-                connect_modules(prev_module,goto_str,next_gate)
-                prev_module=goto_str
-                next_gate = 0
-
-            # UNHANDLED ACTION
-            else:
-                print 'UNHANDLED ACTION'
-                return
-
+        apply_actions(cookie,instr.actions,table_name,ogate)
 
     # UNHANDLED INSTRUCTION TYPE
     else:
@@ -481,7 +487,7 @@ def handle_flow_mod(cookie,table_id,priority,match,instr):
             print 'UNHANDLED TABLE TYPE ', TABLE_TYPE[table_id]
 
     except Exception, err:
-        print 'update FAIL'
+        print 'ERROR: unable to update table rules'
         print err
     finally:
         dp.resume_all()
@@ -812,7 +818,7 @@ def trace_test(trace,dbg):
                                't0',
                                0, 0)
         except Exception, err:
-            print 'PROBLEM CREATING PORT MODULES'
+            print 'ERROR: setting up port'
             print err
         finally:
             dp.resume_all()
