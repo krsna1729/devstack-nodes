@@ -327,9 +327,53 @@ def handle_group_mod(group_id,command,command_type,buckets):
     
 # ASSUMING 8 TABLES
 OGATE_MAPS = [dict() for i in range(0,8)]
-def handle_flow_mod(table_id,priority,match,instr):
+cookie_cntr=0
+
+def output_action(table_id,port,cookie,prev_module,next_gate):
+    global OGATE_MAPS
+    global dp
+    global cookie_cntr
+    
+    if port == OFPP_CONTROLLER:
+        ### TAG COOKIE METADATA
+        ### AND ENCAPSULATE
+        metadata_tag = 'cookie_' + str(cookie_cntr)
+        cookie_cntr += 1
+        dp.pause_all()
+        try:
+            dp.create_module('SetMetadata',
+                             name=metadata_tag,
+                             arg={'name' : 'cookie',
+                                  'value' : cookie,
+                                  'size' : 8})
+        except Exception, err:
+            print 'PROBLEM CONNECTING MODULES'
+            print err
+        finally:
+            dp.resume_all()
+
+        connect_modules(prev_module,metadata_tag,next_gate)
+        prev_module = metadata_tag
+        next_gate = 0
+
+        goto_str = 'OUT_CTL'
+    elif port == OFPP_LOCAL:
+        goto_str = 'OUT_LCL'
+    elif port == 2:
+        goto_str = 'OUT_PHY'
+    else:
+        goto_str = 'OUT_' + str(port)
+        if not port in of_ports:
+            print 'ERROR: NONEXISTENT PORT ', goto_str
+            return
+
+    connect_modules(prev_module,goto_str,next_gate)
+
+
+def handle_flow_mod(cookie,table_id,priority,match,instr):
     global dp
     global OGATE_MAPS
+    
     for f in match:
         print "field\t", f.oxm_field
         print "value\t", f.oxm_value
@@ -340,111 +384,57 @@ def handle_flow_mod(table_id,priority,match,instr):
     table_name = 't'+str(table_id)
     print '~~~~~~~~~~~~~~~~~~~'
     values, masks = table_match(table_id,match)
-    ogate_map = OGATE_MAPS[table_id]
     print table_name, ' add'
     print '\tpriority : ',priority
     print '\tvalues   : ',values
     if TABLE_TYPE[table_id] == WILDCARD_MATCH:
         print '\tmasks    : ',masks
 
+    ### Record mapping from this flow_mod to the appropriate outgate
+    ogate_map = OGATE_MAPS[table_id]
+    ogate = len(ogate_map)
+    ogate_map[cookie] = ogate
+    print '\tcookie   : ', cookie
+    print '\tgate     : ', ogate
+        
     if instr is None:
         goto_str = 'DROP'
         print '\tto_table : ',goto_str
-        if not goto_str in ogate_map:
-            ogate_map[goto_str] = len(ogate_map)
-            new_connection = True
-        ogate = ogate_map[goto_str]
-        print '\tgate     : ', ogate
-        if new_connection:
-            connect_modules(table_name,goto_str,ogate)
+        connect_modules(table_name,goto_str,ogate)
 
     ### GOTO_TABLE
     elif instr.type == OFPIT_GOTO_TABLE:
         goto_str = 't'+str(instr.table_id)
         print '\tto_table : ',goto_str
-        if not goto_str in ogate_map:
-            ogate_map[goto_str] = len(ogate_map)
-            new_connection = True
-        ogate = ogate_map[goto_str]
-        print '\tgate     : ', ogate
-        if new_connection:
-            connect_modules(table_name,goto_str,ogate)
+        connect_modules(table_name,goto_str,ogate)
 
     ### APPLY_ACTIONS
     elif instr.type == OFPIT_APPLY_ACTIONS:
         print 'APPLY_ACTIONS'
-        initial_action = True
-        predecessor = table_name
+        prev_module = table_name
+        next_gate = ogate
         
         for action in instr.actions:
 
             if action.type == OFPAT_OUTPUT:
-                # MAP OF PORTS TO MODULES
-                if action.port == OFPP_CONTROLLER:
-                    goto_str = 'OUT_CTL'
-                elif action.port == OFPP_LOCAL:
-                    goto_str = 'OUT_LCL'
-                elif action.port == 2:
-                    goto_str = 'OUT_PHY'
-                else:
-                    if not action.port in of_ports:
-                        print 'ERROR: NONEXISTENT PORT'
-                        return
-                    
-                    goto_str = 'OUT_' + str(action.port)
-
-                # DETERMINE OUTPUT GATE
-                print '\tto_port : ',goto_str
-                if initial_action:
-                    if not goto_str in ogate_map:
-                        ogate_map[goto_str] = len(ogate_map)
-                        new_connection = True
-                    ogate = ogate_map[goto_str]
-                else:
-                    new_connection = True
-                    ogate = 0
-                print '\tgate     : ', ogate
-
-                # CREATE CONNECTION, IF NECESSARY
-                if new_connection:
-                    connect_modules(predecessor,goto_str,ogate)
+                output_action(table_id,
+                              action.port,
+                              cookie,
+                              prev_module,
+                              next_gate)
+                # TERMINAL ACTION
 
             elif action.type == OFPAT_GROUP:
                 goto_str = 'GRP_' + str(action.group_id)
-                
-                # DETERMINE OUTPUT GATE
-                print '\tto_port : ',goto_str
-                if initial_action:
-                    if not goto_str in ogate_map:
-                        ogate_map[goto_str] = len(ogate_map)
-                        new_connection = True
-                    ogate = ogate_map[goto_str]
-                else:
-                    new_connection = True
-                    ogate = 0
-                print '\tgate     : ', ogate
-
-                # CREATE CONNECTION, IF NECESSARY
-                if new_connection:
-                    connect_modules(predecessor,goto_str,ogate)
+                print '\tto : ',goto_str
+                connect_modules(prev_module,goto_str,next_gate)
+                # TERMINAL ACTION
                     
             elif action.type == OFPAT_POP_VLAN:
-                # WE WILL RUN THE LOOP ONCE FOR EACH UNIQUE INSTRS STRING
-                k = str(instr.actions)
-                if not k in ogate_map:
-                    ogate_map[k] = len(ogate_map)
-                    new_connection = True
-                ogate = ogate_map[k]
-                print '\tgate     : ', ogate
-
-                # CREATE CONNECTION AND CONTINUE LOOP, IF NECESSARY
-                if new_connection:
-                    goto_str = create_new_vlan_pop()
-                    connect_modules(predecessor,goto_str,ogate)
-                    predecessor=goto_str
-                    initial_action=False
-                else:
-                    break
+                goto_str = create_new_vlan_pop()
+                connect_modules(prev_module,goto_str,next_gate)
+                prev_module=goto_str
+                next_gate = 0
 
             # UNHANDLED ACTION
             else:
@@ -481,6 +471,7 @@ def handle_flow_mod(table_id,priority,match,instr):
     finally:
         dp.resume_all()
 
+        
 def case_group_mod(msg):
     print "~~~~~~~~~~~~~~~~~~~~~~~"
     if msg.group_id in groups:
@@ -510,8 +501,20 @@ def case_group_mod(msg):
 def case_flow_mod(msg):
     print "========================"
     if msg.cookie in flows:
-        print "I already have this FlowMod: Cookie", msg.cookie
-    print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+        msg0 = flows[msg.cookie]
+        print "This cookie maps to an existing flow_mod", msg.cookie
+        print str(msg0)
+        print str(msg)
+        if (str(oxm.parse_list(msg.match.oxm_fields)) == str(oxm.parse_list(msg0.match.oxm_fields))
+            and str(msg.instructions) == str(msg0.instructions)):
+            print "This is a duplicate message, we can safely skip"
+            return
+        else:
+            print "WARNING!!! THIS IS NOT A DUPLICATE MESSAGE!"
+            print "THIS CASE IS CURRENTLY UNHANDLED"
+            print msg.cookie, oxm.parse_list(msg.match.oxm_fields), (msg.instructions)
+            print msg0.cookie, oxm.parse_list(msg0.match.oxm_fields), (msg0.instructions)
+            return
 
     print "------------------------"
     print "OFPT_FLOW_MOD"
@@ -528,7 +531,7 @@ def case_flow_mod(msg):
         print "instr", i
     else:
         i = None
-    handle_flow_mod(msg.table_id, msg.priority, match, i)
+    handle_flow_mod(msg.cookie, msg.table_id, msg.priority, match, i)
     flows[msg.cookie] = msg
 
 
