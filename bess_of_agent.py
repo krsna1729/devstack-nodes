@@ -316,19 +316,9 @@ def connect_modules(from_table,to_table, ogate):
     finally:
         dp.resume_all()
 
-
-def handle_group_mod(group_id,command,command_type,buckets):
-    i = 0
-    for b in buckets:
-        print 'bucket ', i
-        for a in b.actions:
-            print a
-        i=i+1
     
 # ASSUMING 8 TABLES
-OGATE_MAPS = [dict() for i in range(0,8)]
 cookie_cntr=0
-
 def output_action(table_id,port,cookie,prev_module,next_gate):
     global OGATE_MAPS
     global dp
@@ -370,6 +360,21 @@ def output_action(table_id,port,cookie,prev_module,next_gate):
     connect_modules(prev_module,goto_str,next_gate)
 
 
+def handle_group_mod(group_id,command,command_type,buckets):
+    global dp
+
+    mod_name = 'GRP_' + str(group_id)
+    num_gates = len(buckets)+1
+
+    i = 0
+    for bkt in buckets:
+        print 'bucket ', i
+        for a in bkt.actions:
+            print a
+        i=i+1
+
+        
+OGATE_MAPS = [dict() for i in range(0,8)]
 def handle_flow_mod(cookie,table_id,priority,match,instr):
     global dp
     global OGATE_MAPS
