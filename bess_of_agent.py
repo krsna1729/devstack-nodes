@@ -251,6 +251,11 @@ def init_pktinout_port(dp):
     else:
         dp.create_module('PortInc', 'INC_CTL', {'port': CTL_NAME})
         dp.create_module('PortOut', 'OUT_CTL', {'port': CTL_NAME})
+        dp.create_module('SetMetadata',
+                         name='INC_CTL_MARK',
+                         arg={'name' : 'in_port',
+                              'value' : OFPP_CONTROLLER,
+                              'size' : 4})
         print 'Created INC_CTL and OUT_CTL'
 
         dp.resume_all()
@@ -777,7 +782,8 @@ def init_modules(dp):
         dp.connect_modules('is_vxlan'     , 'IN_VXLAN'     , 1, 0)
         dp.connect_modules('IN_VXLAN'     , 'IN_VXLAN_MARK', 0, 0)
         dp.connect_modules('IN_VXLAN_MARK', 't0'           , 0, 0)
-        dp.connect_modules('INC_CTL'      , 't0'           , 0, 0)
+        dp.connect_modules('INC_CTL'      , 'INC_CTL_MARK' , 0, 0)
+        dp.connect_modules('INC_CTL_MARK' , 't0'           , 0, 0)
         dp.connect_modules('INC_LCL'      , 'INC_LCL_MARK' , 0, 0)
         dp.connect_modules('INC_LCL_MARK' , 't0'           , 0, 0)
         
