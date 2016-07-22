@@ -205,6 +205,11 @@ def init_phy_port(dp, name, port_id):
         result = dp.create_port('PMD', name, {'port_id': port_id})
         dp.create_module('PortInc', 'INC_PHY'    , {'port': name})
         dp.create_module('PortOut', 'OUT_PHY'    , {'port': name})
+        dp.create_module('SetMetadata',
+                         name='INC_PHY_MARK',
+                         arg={'name' : 'in_port',
+                              'value' : 2,
+                              'size' : 4})
         dp.resume_all()
     except (dp.APIError, dp.Error)as err:
         print err.message
@@ -219,6 +224,11 @@ def init_lcl_port(dp, name, port_id):
         result = dp.create_port('VPort', name, {'port_id': port_id})
         dp.create_module('PortInc', 'INC_LCL', {'port': name})
         dp.create_module('PortOut', 'OUT_LCL', {'port': name})
+        dp.create_module('SetMetadata',
+                         name='INC_LCL_MARK',
+                         arg={'name' : 'in_port',
+                              'value' : OFPP_LOCAL,
+                              'size' : 4})
         dp.resume_all()
     except (dp.APIError, dp.Error)as err:
         print err.message
@@ -743,27 +753,35 @@ def init_modules(dp):
                          arg=2)
             
         ### Incoming Static Pipeline ###
-        dp.create_module('BPF'          ,name='is_vxlan')
-        dp.create_module('VXLANDecap'   ,name='IN_VXLAN')
-        dp.connect_modules('INC_PHY'    ,'is_vxlan'    , 0, 0)
-        dp.connect_modules('is_vxlan'   ,'t0'          , 0, 0)
-        dp.run_module_command('is_vxlan',
+        dp.create_module('BPF'            , name='is_vxlan')
+        dp.create_module('VXLANDecap'     , name='IN_VXLAN')
+        dp.create_module('SetMetadata',
+                         name='IN_VXLAN_MARK',
+                         arg={'name' : 'in_port',
+                              'value' : 1,
+                              'size' : 4})
+        dp.connect_modules('INC_PHY'      , 'INC_PHY_MARK' , 0, 0)
+        dp.connect_modules('INC_PHY_MARK' , 'is_vxlan'     , 0, 0)
+        dp.connect_modules('is_vxlan'     , 't0'           , 0, 0)
+        dp.run_module_command('is_vxlan'  ,
                               'add',
                               arg=[{'filter':'ip and udp dst port 4789',
                                     'gate':1}])
-        dp.connect_modules('is_vxlan'   ,'IN_VXLAN'    , 1, 0)
-        dp.connect_modules('IN_VXLAN'   ,'t0'          , 0, 0)
-        dp.connect_modules('INC_CTL'    ,'t0'          , 0, 0)
-        dp.connect_modules('INC_LCL'    ,'t0'          , 0, 0)
+        dp.connect_modules('is_vxlan'     , 'IN_VXLAN'     , 1, 0)
+        dp.connect_modules('IN_VXLAN'     , 'IN_VXLAN_MARK', 0, 0)
+        dp.connect_modules('IN_VXLAN_MARK', 't0'           , 0, 0)
+        dp.connect_modules('INC_CTL'      , 't0'           , 0, 0)
+        dp.connect_modules('INC_LCL'      , 'INC_LCL_MARK' , 0, 0)
+        dp.connect_modules('INC_LCL_MARK' , 't0'           , 0, 0)
         
 
         ### Outgoing Static Pipeline ###
-        dp.create_module('VXLANEncap'   , name='OUT_VXLAN')
-        dp.create_module('IPEncap'      , name='ip_encap')
-        dp.create_module('EtherEncap'   , name='ether_encap')  
-        dp.connect_modules('OUT_VXLAN'  , 'ip_encap'   , 0, 0)
-        dp.connect_modules('ip_encap'   , 'ether_encap', 0, 0)
-        dp.connect_modules('ether_encap', 'OUT_PHY'    , 0, 0)
+        dp.create_module('VXLANEncap'     , name='OUT_VXLAN')
+        dp.create_module('IPEncap'        , name='ip_encap')
+        dp.create_module('EtherEncap'     , name='ether_encap')  
+        dp.connect_modules('OUT_VXLAN'    , 'ip_encap'     , 0, 0)
+        dp.connect_modules('ip_encap'     , 'ether_encap'  , 0, 0)
+        dp.connect_modules('ether_encap'  , 'OUT_PHY'      , 0, 0)
             
     finally:
         dp.resume_all()
@@ -782,6 +800,17 @@ def trace_test(trace,dbg):
         try:
             dp.create_module('PortInc', 'INC_' + str(i), {'port': pname})
             dp.create_module('PortOut', 'OUT_' + str(i), {'port': pname})
+            dp.create_module('SetMetadata',
+                             name='INC_' + str(i) + '_MARK',
+                             arg={'name' : 'in_port',
+                                  'value' : i,
+                                  'size' : 4})
+            dp.connect_modules('INC_' + str(i),
+                               'INC_' + str(i) + '_MARK',
+                               0, 0)
+            dp.connect_modules('INC_' + str(i) + '_MARK',
+                               't0',
+                               0, 0)
         except Exception, err:
             print 'PROBLEM CREATING PORT MODULES'
             print err
