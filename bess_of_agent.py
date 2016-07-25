@@ -162,22 +162,28 @@ except ImportError as e:
 def run_pktin_recv():
 
     s = of_ports[OFPP_LOCAL].pkt_inout_socket
+    fmt = "QI"
+    split = calcsize(fmt)
     while True:
         try:
             data = s.recv(PKT_IN_BYTES)
-            if len(data) == 0:
+            if len(data) < split+64:
+                print 'Frame less than minimum possible size. Skipping..'
                 continue
             print len(data), type(data), binascii.hexlify(data)
             # TODO: Formalise this. DP to prepend cookie before sending PACKET_IN. Reason also? For now ACTION
             # Format is cookie(8)(Q)+inport(4)(I)
-            fmt = "QI"
+            #fmt = "QI"
             split = calcsize(fmt)
             cookie, inport, = unpack(fmt, data[:split])
         except Exception as e:
             print 'Exception in run_pktin_recv', e
         else:
             print hex(cookie), inport
-            f = flows[cookie]
+            f = flows.get(cookie, None)
+            if f is None:
+                print 'Cannot find cookie, dropping PKT_IN'
+                continue
             match = b.ofp_match(None, None, oxm.build(None, oxm.OXM_OF_IN_PORT, False, None, inport))
             channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
                                          0xffffffff, len(data[split:]), OFPR_ACTION, f.table_id, cookie, match, data[split:]))
