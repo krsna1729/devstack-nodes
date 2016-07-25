@@ -105,7 +105,7 @@ TABLE_FIELDS = {
 
 PKT_IN_BYTES = 4096
 PHY_NAME = "eth2"
-LCL_NAME = "br-int"
+LCL_NAME = "brint"
 CTL_NAME = "ctl"
 SOCKET_PATH = '/tmp/bess/unix_' + CTL_NAME
 dpid = 0xffff
@@ -167,20 +167,20 @@ def run_pktin_recv():
             data = s.recv(PKT_IN_BYTES)
             if len(data) == 0:
                 continue
-            print len(data), type(data), data
+            print len(data), type(data), binascii.hexlify(data)
             # TODO: Formalise this. DP to prepend cookie before sending PACKET_IN. Reason also? For now ACTION
             # Format is cookie(8)(Q)+inport(4)(I)
-            fmt = "!QI"
+            fmt = "QI"
             split = calcsize(fmt)
-            (cookie, inport) = unpack(fmt, data)
-
+            cookie, inport, = unpack(fmt, data[:split])
+        except Exception as e:
+            print 'Exception in run_pktin_recv', e
+        else:
+            print hex(cookie), inport
             f = flows[cookie]
             match = b.ofp_match(None, None, oxm.build(None, oxm.OXM_OF_IN_PORT, False, None, inport))
             channel.send(b.ofp_packet_in(b.ofp_header(4, OFPT_PACKET_IN, 0, 0),
                                          0xffffffff, len(data[split:]), OFPR_ACTION, f.table_id, cookie, match, data[split:]))
-        except Exception as e:
-            print(e)
-            break 
  
     # s.close()
     print 'Exiting thread run_pktin_recv'
@@ -197,6 +197,29 @@ def connect_bess():
         return None
     else:
         return s
+
+
+def port_provision(dp, port, name):
+    dp.pause_all()
+    try:
+        dp.create_module('PortInc', 'INC_' + str(port), {'port': name})
+        dp.create_module('PortOut', 'OUT_' + str(port), {'port': name})
+        dp.create_module('SetMetadata',
+                         name='INC_' + str(port) + '_MARK',
+                         arg={'name' : 'in_port',
+                         'value' : port,
+                         'size' : 4})
+        dp.connect_modules('INC_' + str(port),
+                           'INC_' + str(port) + '_MARK',
+                           0, 0)
+        dp.connect_modules('INC_' + str(port) + '_MARK',
+                           't0',
+                           0, 0)
+    except Exception as err:
+            print 'ERROR: setting up port'
+            print err
+
+    dp.resume_all()
 
 
 def init_phy_port(dp, name, port_id):
@@ -256,6 +279,11 @@ def init_pktinout_port(dp):
                          arg={'name' : 'in_port',
                               'value' : OFPP_CONTROLLER,
                               'size' : 4})
+        dp.create_module('GenericEncap',
+                         name='OUT_CTL_GENCAP',
+                         arg={'fields':[{'name' : 'cookie',  'size' : 8},
+                                      {'name' : 'in_port', 'size' : 4}]})
+        dp.connect_modules('OUT_CTL_GENCAP', 'OUT_CTL' , 0, 0)
         print 'Created INC_CTL and OUT_CTL'
 
         dp.resume_all()
@@ -269,6 +297,8 @@ def deinit_pktinout_port(dp, s):
         dp.pause_all()
         dp.destroy_module('INC_CTL')
         dp.destroy_module('OUT_CTL')
+        dp.destroy_module('INC_CTL_MARK')
+        dp.destroy_module('OUT_CTL_GENCAP')
         dp.destroy_port(CTL_NAME)
         dp.resume_all()
         return
@@ -293,6 +323,50 @@ def create_new_vlan_pop():
     finally:
         dp.resume_all()
     return name     
+
+
+update_cntr=0
+def update_field(arg=None):
+    global dp
+    global update_cntr
+    update_tag = None
+
+    if arg is not None:
+        update_tag = 'update_' + str(update_cntr)
+        update_cntr += 1
+        dp.pause_all()
+        try:
+            dp.create_module('Update',
+                             name=update_tag,
+                             arg=arg)
+        except Exception, err:
+            print 'ERROR: failed to update_field'
+            print err
+        finally:
+            dp.resume_all()
+        return update_tag
+
+
+metadata_cntr=0
+def set_metadata(arg=None):
+    global dp
+    global metadata_cntr
+    metadata_tag = None
+
+    if arg is not None:
+        metadata_tag = 'meta_' + str(metadata_cntr)
+        metadata_cntr += 1
+        dp.pause_all()
+        try:
+            dp.create_module('SetMetadata',
+                             name=metadata_tag,
+                             arg=arg)
+        except Exception, err:
+            print 'ERROR: failed to set_metadata'
+            print err
+        finally:
+            dp.resume_all()
+        return metadata_tag
 
 
 MASK_OF_SIZE = {
@@ -360,7 +434,7 @@ def output_action(cookie,port,prev_module,next_gate):
         prev_module = metadata_tag
         next_gate = 0
 
-        goto_str = 'OUT_CTL'
+        goto_str = 'OUT_CTL_GENCAP'
     elif port == OFPP_LOCAL:
         goto_str = 'OUT_LCL'
     elif port == 1:
@@ -400,13 +474,28 @@ def apply_actions(cookie,actions,prev_module,next_gate):
             next_gate = 0
 
         elif action.type == OFPAT_SET_FIELD:
-            print 'TBD: for now, skip'
+            print 'TBD: for now, skip', action, oxm.parse(action.field)
+            oparsed = oxm.parse(action.field)
+            if oparsed.oxm_class == 32768:
+                if oparsed.oxm_field == oxm.OXM_OF_ETH_DST:
+                    goto_str = update_field(arg=[{'offset': 6, 'size': 6, 'value': oparsed.oxm_value.encode("hex")}])
+                elif oparsed.oxm_field == oxm.OXM_OF_TUNNEL_ID:
+                    goto_str = set_metadata(arg={'name': 'tun_id', 'size': 4, 'value': oparsed.oxm_value})
+
+            elif oparsed.oxm_class == 1:
+                if oparsed.nxm_field == oxm.NXM_NX_TUN_IPV4_DST:
+                    goto_str = set_metadata(arg={'name': 'tun_ip_dst', 'size': 4, 'value': oparsed.nxm_value})
+            else:
+                print 'ERROR: UNHANDLED OXM_CLASS'
+                return
+            connect_modules(prev_module,goto_str,next_gate)
+            prev_module=goto_str
+            next_gate = 0
             
         # UNHANDLED ACTION
         else:
             print 'ERROR: UNHANDLED ACTION'
             return
-
 
 
 def handle_group_mod(group_id,command,command_type,buckets):
@@ -697,6 +786,7 @@ class PortManager(object):
         mac = mac.replace(":", "")
         # Create vhost-user port
         ret = dp.create_port('vhost_user', dev, {'mac': mac})
+        port_provision(dp, self.of_port_num, dev)
 
 
         of_ports[self.of_port_num] = default_port._replace(
@@ -782,8 +872,8 @@ def init_modules(dp):
         dp.connect_modules('is_vxlan'     , 'IN_VXLAN'     , 1, 0)
         dp.connect_modules('IN_VXLAN'     , 'IN_VXLAN_MARK', 0, 0)
         dp.connect_modules('IN_VXLAN_MARK', 't0'           , 0, 0)
-        dp.connect_modules('INC_CTL'      , 'INC_CTL_MARK' , 0, 0)
-        dp.connect_modules('INC_CTL_MARK' , 't0'           , 0, 0)
+        #dp.connect_modules('INC_CTL'      , 'INC_CTL_MARK' , 0, 0)
+        #dp.connect_modules('INC_CTL_MARK' , 't0'           , 0, 0)
         dp.connect_modules('INC_LCL'      , 'INC_LCL_MARK' , 0, 0)
         dp.connect_modules('INC_LCL_MARK' , 't0'           , 0, 0)
         
@@ -809,27 +899,6 @@ def trace_test(trace,dbg):
         print 'ADDING NEW PORT ', pname
         print 'w/ mac', pmac
         pm.add_port(pname,pmac)
-        dp.pause_all()
-        try:
-            dp.create_module('PortInc', 'INC_' + str(i), {'port': pname})
-            dp.create_module('PortOut', 'OUT_' + str(i), {'port': pname})
-            dp.create_module('SetMetadata',
-                             name='INC_' + str(i) + '_MARK',
-                             arg={'name' : 'in_port',
-                                  'value' : i,
-                                  'size' : 4})
-            dp.connect_modules('INC_' + str(i),
-                               'INC_' + str(i) + '_MARK',
-                               0, 0)
-            dp.connect_modules('INC_' + str(i) + '_MARK',
-                               't0',
-                               0, 0)
-        except Exception, err:
-            print 'ERROR: setting up port'
-            print err
-        finally:
-            dp.resume_all()
-
 
     pkts = rdpcap(trace)
     num_pkts = int(os.environ.get('PKTS', len(pkts)))
@@ -897,7 +966,8 @@ if __name__ == "__main__":
     pm = PortManager()
         
     init_modules(dp)
-        
+    #trace_test("/vagrant/OVS-OF-compute-1.pcap", False)
+    #'''
     while of_agent_start(ctl_ip=args.ctl) == errno.ECONNREFUSED:
         pass
         
@@ -909,3 +979,4 @@ if __name__ == "__main__":
     nova_agent_start()
 
     signal.pause()
+    #'''
