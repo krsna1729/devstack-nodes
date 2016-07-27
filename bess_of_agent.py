@@ -937,7 +937,7 @@ if __name__ == "__main__":
 
     def cleanup(*args):
         dp.pause_all()
-        deinit_pktinout_port(dp, of_ports[OFPP_LOCAL].pkt_inout_socket)
+        of_ports[OFPP_LOCAL].pkt_inout_socket.close()
         dp.reset_all()
         sys.exit()
 
@@ -948,6 +948,7 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--dpid', default=1, type=int, help='Datapath ID default=1')
     parser.add_argument('-c', '--ctl', default=None, help='Controller IP. default=None')
     parser.add_argument('-i', '--phy', default="eth2", help='Interface name. default=eth2')
+    parser.add_argument('-f', '--tracefile', default=None, help='Interface name. default=eth2')
     args = parser.parse_args()
 
     dpid = args.dpid
@@ -972,8 +973,13 @@ if __name__ == "__main__":
     pm = PortManager()
         
     init_modules(dp)
-    #trace_test("/vagrant/OVS-OF-compute-1.pcap", False)
-    #'''
+    if args.tracefile is not None:
+        trace_test(args.tracefile, False)
+        print 'Done.'
+        of_ports[OFPP_LOCAL].pkt_inout_socket.close()
+        sys.exit()
+        #cleanup()
+
     while of_agent_start(ctl_ip=args.ctl) == errno.ECONNREFUSED:
         pass
         
@@ -985,4 +991,4 @@ if __name__ == "__main__":
     nova_agent_start()
 
     signal.pause()
-    #'''
+
