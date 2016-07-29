@@ -208,8 +208,10 @@ def connect_bess():
 def port_provision(dp, port, name):
     dp.pause_all()
     try:
-        dp.create_module('PortInc', 'INC_' + str(port), {'port': name})
         dp.create_module('PortOut', 'OUT_' + str(port), {'port': name})
+        dp.connect_modules('INC_CTL_SPLIT' , 'OUT_' + str(port), port, 0)
+
+        dp.create_module('PortInc', 'INC_' + str(port), {'port': name})
         dp.create_module('SetMetadata',
                          name='INC_' + str(port) + '_MARK',
                          arg={'name' : 'in_port',
@@ -282,8 +284,15 @@ def init_pktinout_port(dp):
         dp.create_module('PortOut', 'OUT_CTL', {'port': CTL_NAME})
         dp.create_module('SetMetadata',
                          name='INC_CTL_MARK',
-                         arg={'name' : 'in_port',
-                              'value' : OFPP_CONTROLLER,
+                         arg={'name' : 'out_port',
+                              'offset' : 0,
+                              'size' : 4})
+        dp.create_module('GenericDecap',
+                         name='INC_CTL_GDECAP',
+                         arg=4)
+        dp.create_module('Split',
+                         name='INC_CTL_SPLIT',
+                         arg={'name' : 'out_port',
                               'size' : 4})
         dp.create_module('GenericEncap',
                          name='OUT_CTL_GENCAP',
@@ -880,8 +889,11 @@ def init_modules(dp):
         dp.connect_modules('is_vxlan'     , 'IN_VXLAN'     , 1, 0)
         dp.connect_modules('IN_VXLAN'     , 'IN_VXLAN_MARK', 0, 0)
         dp.connect_modules('IN_VXLAN_MARK', 't0'           , 0, 0)
-        #dp.connect_modules('INC_CTL'      , 'INC_CTL_MARK' , 0, 0)
-        #dp.connect_modules('INC_CTL_MARK' , 't0'           , 0, 0)
+        dp.connect_modules('INC_CTL'      , 'INC_CTL_MARK' , 0, 0)
+        dp.connect_modules('INC_CTL_MARK'  , 'INC_CTL_GDECAP', 0, 0)
+        dp.connect_modules('INC_CTL_GDECAP' , 'INC_CTL_SPLIT', 0, 0)
+        #dp.connect_modules('INC_CTL_SPLIT' , 'OUT_VXLAN', 1, 0)
+        dp.connect_modules('INC_CTL_SPLIT' , 'OUT_PHY', 2, 0)
         dp.connect_modules('INC_LCL'      , 'INC_LCL_MARK' , 0, 0)
         dp.connect_modules('INC_LCL_MARK' , 't0'           , 0, 0)
         
