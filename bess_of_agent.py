@@ -508,8 +508,13 @@ def handle_group_mod(group_id,command,command_type,buckets):
     global dp
 
     mod_name = 'GRP_' + str(group_id)
-    num_gates = len(buckets)+1
+    ### Group Table Entry ###
+    dp.pause_all()
+    dp.create_module('HashLB',
+                      name=mod_name,
+                      arg=len(buckets))
 
+    dp.resume_all()
     i = 0
     for bkt in buckets:
         print 'BUCKET ', i
@@ -856,9 +861,6 @@ def init_modules(dp):
                                   'size' : 4096})
 
         ### Group Table ###
-        dp.create_module('HashLB',
-                         name='GRP_2953848289',
-                         arg=2)
             
         ### Incoming Static Pipeline ###
         dp.create_module('BPF'            , name='is_vxlan')
