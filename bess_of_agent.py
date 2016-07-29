@@ -896,7 +896,7 @@ def init_modules(dp):
         dp.resume_all()
 
 
-def trace_test(trace,dbg):
+def trace_test(trace, ip, dbg):
 
     ### CREATE VM PORTS 3 & 4
     for i in range(3,5):
@@ -910,7 +910,7 @@ def trace_test(trace,dbg):
     num_pkts = int(os.environ.get('PKTS', len(pkts)))
     print 'Replaying ', num_pkts, 'packets'
     for i in range(num_pkts):
-        if pkts[i]['IP'].dst == '192.168.50.21':
+        if pkts[i]['IP'].dst == ip:
             of_msgs = pkts[i].getlayer(Raw).load
             if dbg: print 'PktNo.', i, binascii.hexlify(of_msgs)
             of_len = 0
@@ -947,8 +947,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dpid', default=1, type=int, help='Datapath ID default=1')
     parser.add_argument('-c', '--ctl', default=None, help='Controller IP. default=None')
-    parser.add_argument('-i', '--phy', default="eth2", help='Interface name. default=eth2')
-    parser.add_argument('-f', '--tracefile', default=None, help='Interface name. default=eth2')
+    parser.add_argument('-p', '--phy', default="eth2", help='Interface name. default=eth2')
+    parser.add_argument('-f', '--tracefile', default=None, help='PCAP tracefile path. default=None')
+    parser.add_argument('-i', '--traceip', default=None, help='Trace IP to match against. default=None')
     args = parser.parse_args()
 
     dpid = args.dpid
@@ -973,8 +974,8 @@ if __name__ == "__main__":
     pm = PortManager()
         
     init_modules(dp)
-    if args.tracefile is not None:
-        trace_test(args.tracefile, False)
+    if args.tracefile is not None and args.traceip is not None:
+        trace_test(args.tracefile, args.traceip, False)
         print 'Done.'
         of_ports[OFPP_LOCAL].pkt_inout_socket.close()
         sys.exit()
