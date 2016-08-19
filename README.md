@@ -30,13 +30,7 @@ One time:
     cp $HOME/.vagrant.d/insecure_private_key .
     git clone -b stable/mitaka https://github.com/openstack/nova.git
 
-A Vagrantfile is provided to easily create a DevStack environment to test with. First time:
-
-    vagrant up devstack-control --provider=libvirt
-    vagrant up devstack-compute-1 --provider=libvirt 
-    vagrant up devstack-compute-2 --provider=libvirt 
-
-Later bringups can be done by:
+A Vagrantfile is provided to easily create a DevStack environment to test with:
 
     vagrant up --provider=libvirt 
 
