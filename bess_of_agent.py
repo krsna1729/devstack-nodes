@@ -107,6 +107,7 @@ PKT_IN_BYTES = 4096
 PHY_NAME = "eth2"
 LCL_NAME = "brint"
 CTL_NAME = "ctl"
+VDEV_PATH = 'eth_vhost_%s,iface=/tmp/bess/%s'
 SOCKET_PATH = '/tmp/bess/unix_' + CTL_NAME
 dpid = 0xffff
 n_tables = 254
@@ -805,7 +806,8 @@ class PortManager(object):
         self.of_port_num += 1
         mac = mac.replace(":", "")
         # Create vhost-user port
-        ret = dp.create_port('vhost_user', dev, {'mac': mac})
+
+        ret = dp.create_port('PMD', VDEV_PATH % (dev,dev), {'mac': mac})
         port_provision(dp, self.of_port_num, dev)
 
 
